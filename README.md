@@ -29,6 +29,16 @@ LAN: http://192.168.x.x:4173/
 npm run check
 ```
 
+## GitHub Pages
+
+仓库包含 GitHub Actions 工作流，会在 `main` 分支推送后自动部署静态版：
+
+```text
+https://11010tianyi.github.io/nba-basketball-kill/
+```
+
+Pages 静态版适合体验单机 AI 局、规则、角色、卡牌和界面适配。局域网房间依赖 `server.mjs` 的 WebSocket 服务，仍需在本机运行 `npm start` 后通过终端输出的 LAN 地址访问。
+
 ## 当前内容
 
 - 球星角色：20 名，包括现役、历史级和中国球员
