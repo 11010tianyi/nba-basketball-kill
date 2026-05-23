@@ -1,0 +1,11 @@
+{
+  "name": "nba-basketball-kill",
+  "version": "0.1.0",
+  "private": true,
+  "description": "篮球主题身份卡牌游戏原型，包含单机 AI、局域网房间、响应链、距离和判定系统。",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node --check app.js && node --check server.mjs"
+  }
+}

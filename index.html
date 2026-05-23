@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NBA 篮球杀 Prototype</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <section class="scoreboard" aria-label="比赛记分牌">
+        <div class="score-team">
+          <span class="score-label">HOME</span>
+          <strong id="homeScore">00</strong>
+        </div>
+        <div class="score-center">
+          <span id="quarterLabel">Q1</span>
+          <strong id="clockLabel">12:00</strong>
+          <span id="phaseLabel">开球</span>
+          <span id="turnTimerLabel" class="turn-timer"></span>
+        </div>
+        <div class="score-team away">
+          <span class="score-label">AWAY</span>
+          <strong id="awayScore">00</strong>
+        </div>
+        <div class="score-actions">
+          <button id="settingsBtn" class="icon-btn" type="button" title="形象设置">◐</button>
+          <button id="helpBtn" class="icon-btn" type="button" title="帮助">?</button>
+          <button id="soundToggle" class="icon-btn" type="button" title="声音">♪</button>
+          <button id="newGameBtn" class="icon-btn" type="button" title="新局">↻</button>
+        </div>
+      </section>
+
+      <section class="arena">
+        <div class="court-lines" aria-hidden="true">
+          <div class="half-line"></div>
+          <div class="center-circle"></div>
+          <div class="paint top"></div>
+          <div class="paint bottom"></div>
+          <div class="arc top"></div>
+          <div class="arc bottom"></div>
+        </div>
+
+        <div id="playerGrid" class="player-grid"></div>
+        <div id="ball" class="ball" aria-hidden="true"></div>
+        <div id="targetHint" class="target-hint"></div>
+        <div id="coachTip" class="coach-tip"></div>
+      </section>
+
+      <section class="bench">
+        <div id="responsePanel" class="response-panel"></div>
+        <div class="bench-top">
+          <div>
+            <span class="eyebrow">手牌</span>
+            <strong id="handCount">0</strong>
+          </div>
+          <div class="turn-actions">
+            <button id="sortHandBtn" type="button">一键排序</button>
+            <button id="drawBtn" type="button">摸牌</button>
+            <button id="endTurnBtn" type="button">结束回合</button>
+          </div>
+        </div>
+        <div id="hand" class="hand"></div>
+      </section>
+
+      <aside class="side-panel">
+        <div class="panel-section">
+          <span class="eyebrow">战术日志</span>
+          <div id="log" class="log"></div>
+        </div>
+        <div class="panel-section">
+          <span class="eyebrow">弃牌堆</span>
+          <div id="discardPile" class="discard-pile"></div>
+        </div>
+      </aside>
+    </main>
+
+    <div id="startModal" class="modal active" role="dialog" aria-modal="true">
+      <div class="modal-card">
+        <div class="modal-header">
+          <span class="eyebrow">Full Rules</span>
+          <h1>NBA 篮球杀</h1>
+          <p>选择人数、模式和你的球星，进入身份战。</p>
+        </div>
+        <div class="setup-options">
+          <label>
+            <span>人数</span>
+            <select id="playerCountSelect">
+              <option value="4">4 人</option>
+              <option value="5">5 人</option>
+              <option value="6">6 人</option>
+              <option value="7">7 人</option>
+              <option value="8">8 人</option>
+            </select>
+          </label>
+          <label>
+            <span>模式</span>
+            <select id="playModeSelect">
+              <option value="solo">单机 AI 局</option>
+              <option value="lan">局域网房间</option>
+            </select>
+          </label>
+          <div id="lanPanel" class="lan-panel active">
+            <div class="lan-row">
+              <button id="createRoomBtn" type="button">创建房间</button>
+              <input id="roomCodeInput" type="text" maxlength="6" placeholder="房间码" />
+              <button id="joinRoomBtn" type="button">加入</button>
+            </div>
+            <p id="roomStatus">本机服务器启动后，局域网玩家访问同一地址并输入房间码。</p>
+          </div>
+        </div>
+        <div id="roster" class="roster"></div>
+        <div class="modal-footer">
+          <button id="tipBtn" class="ghost" type="button">规则速览</button>
+          <button id="startBtn" type="button">开球</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="rulesModal" class="modal" role="dialog" aria-modal="true">
+      <div class="modal-card rules-card">
+        <div class="modal-header">
+          <span class="eyebrow">Rules</span>
+          <h2>快速规则</h2>
+        </div>
+        <ul class="rules-list">
+          <li>你是公开的球队核心，AI 中有队友、挑战者和独狼。</li>
+          <li>每回合摸 2 张；手牌上限等于当前体能，战术板可 +1。</li>
+          <li>突破、三分、抢断、包夹、战术犯规需要满足距离。</li>
+          <li>被进攻时进入响应链，可用防守或盖帽；部分强攻需要 2 张响应。</li>
+          <li>被战术牌指定时，可用盖帽或教练挑战抵消。</li>
+          <li>罚球会翻判定牌：红色回血，黑色摸牌。</li>
+          <li>体能归 0 时可用暂停救回；冠军戒指可自动救命一次。</li>
+          <li>淘汰挑战者摸 3 张；核心误伤队友会清空手牌和装备。</li>
+          <li>拖拽手牌可调整顺序；结束回合若超过手牌上限，需要自己选择弃牌。</li>
+          <li>无牌可出或无可响应牌时，系统会提示并快速结束当前操作。</li>
+        </ul>
+        <div class="modal-footer">
+          <button id="closeRulesBtn" type="button">明白</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="settingsModal" class="modal" role="dialog" aria-modal="true">
+      <div class="modal-card settings-card">
+        <div class="modal-header">
+          <span class="eyebrow">Settings</span>
+          <h2>设置</h2>
+          <p>选择球员卡面形象和球场声音风格。</p>
+        </div>
+        <span class="settings-label">形象风格</span>
+        <div class="avatar-options">
+          <button class="avatar-option" type="button" data-avatar-style="portrait">
+            <strong>拟人球星卡</strong>
+            <span>正面卡通头像，表情、胡须、发型和球衣更完整。</span>
+          </button>
+          <button class="avatar-option" type="button" data-avatar-style="classic">
+            <strong>经典球衣背影</strong>
+            <span>保留当前简洁球衣形象，适合更轻量的卡面。</span>
+          </button>
+          <button class="avatar-option" type="button" data-avatar-style="photo">
+            <strong>真人现场照片</strong>
+            <span>从公开网络图片加载现场感卡面；缺图时自动回退拟人卡。</span>
+          </button>
+        </div>
+        <span class="settings-label">音效风格</span>
+        <div class="sound-options">
+          <button class="avatar-option" type="button" data-sound-pack="live">
+            <strong>球场现场</strong>
+            <span>更明显的刷网、拍球、盖帽、哨声和人群底噪。</span>
+          </button>
+          <button class="avatar-option" type="button" data-sound-pack="arcade">
+            <strong>街机合成</strong>
+            <span>保留原先轻量的合成音效，节奏更清爽。</span>
+          </button>
+        </div>
+        <div class="modal-footer">
+          <button id="closeSettingsBtn" type="button">完成</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
