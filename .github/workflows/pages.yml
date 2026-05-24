@@ -31,7 +31,8 @@ jobs:
       - name: Prepare static site
         run: |
           mkdir -p _site/assets
-          cp index.html app.js styles.css README.md NOTES.md package.json .nojekyll _site/
+          cp index.html app.js styles.css package.json .nojekyll _site/
+          cp *.md _site/
           cp *.png _site/
           cp -R assets/audio _site/assets/
 

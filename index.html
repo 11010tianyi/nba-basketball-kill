@@ -134,6 +134,7 @@
           <li>淘汰挑战者摸 3 张；核心误伤队友会清空手牌和装备。</li>
           <li>拖拽手牌可调整顺序；结束回合若超过手牌上限，需要自己选择弃牌。</li>
           <li>无牌可出或无可响应牌时，系统会提示并快速结束当前操作。</li>
+          <li>AI 有出牌节奏和三档难度：新秀偏随机，轮换主力按身份站队，名人堂会集火、拆牌和支援队友。</li>
         </ul>
         <div class="modal-footer">
           <button id="closeRulesBtn" type="button">明白</button>
@@ -146,7 +147,7 @@
         <div class="modal-header">
           <span class="eyebrow">Settings</span>
           <h2>设置</h2>
-          <p>选择球员卡面形象和球场声音风格。</p>
+          <p>选择球员卡面、AI 节奏、AI 难度、球场和声音风格。</p>
         </div>
         <span class="settings-label">形象风格</span>
         <div class="avatar-options">
@@ -161,6 +162,59 @@
           <button class="avatar-option" type="button" data-avatar-style="photo">
             <strong>真人现场照片</strong>
             <span>从公开网络图片加载现场感卡面；缺图时自动回退拟人卡。</span>
+          </button>
+        </div>
+        <span class="settings-label">AI 出牌节奏</span>
+        <div class="speed-options">
+          <button class="avatar-option" type="button" data-ai-speed="broadcast">
+            <strong>解说节奏</strong>
+            <span>AI 每次出牌会停顿并写出决策提示，适合学习人物关系。</span>
+          </button>
+          <button class="avatar-option" type="button" data-ai-speed="quick">
+            <strong>快速节奏</strong>
+            <span>接近原版速度，适合熟悉规则后的快速对局。</span>
+          </button>
+          <button class="avatar-option" type="button" data-ai-speed="instant">
+            <strong>极速跳过</strong>
+            <span>保留最早的高速版本，AI 几乎连续结算。</span>
+          </button>
+        </div>
+        <span class="settings-label">AI 难度</span>
+        <div class="difficulty-options">
+          <button class="avatar-option" type="button" data-ai-level="rookie">
+            <strong>新秀</strong>
+            <span>偏随机出牌，只做基础回血、装备和近距离进攻。</span>
+          </button>
+          <button class="avatar-option" type="button" data-ai-level="pro">
+            <strong>轮换主力</strong>
+            <span>会按身份阵营挑目标，优先处理核心威胁和低体能角色。</span>
+          </button>
+          <button class="avatar-option" type="button" data-ai-level="legend">
+            <strong>名人堂</strong>
+            <span>更重视胜负目标、集火、拆牌、封锁进攻和队友支援。</span>
+          </button>
+        </div>
+        <span class="settings-label">球场背景</span>
+        <div class="court-options">
+          <button class="avatar-option" type="button" data-court-style="nba-hardwood">
+            <strong>NBA 木地板</strong>
+            <span>高光木纹、标准半场线和转播风格灯光。</span>
+          </button>
+          <button class="avatar-option" type="button" data-court-style="classic-garden">
+            <strong>复古主场</strong>
+            <span>偏凯尔特绿的老派馆内木质感，适合历史球星局。</span>
+          </button>
+          <button class="avatar-option" type="button" data-court-style="concrete-park">
+            <strong>水泥外场</strong>
+            <span>粗粝灰水泥、粉笔边线和户外阴影。</span>
+          </button>
+          <button class="avatar-option" type="button" data-court-style="rubber-training">
+            <strong>橡胶训练场</strong>
+            <span>蓝绿橡胶颗粒质感，读牌清晰、对比度高。</span>
+          </button>
+          <button class="avatar-option" type="button" data-court-style="graffiti-street">
+            <strong>林式涂鸦街球</strong>
+            <span>纽约街球墙绘感、霓虹粉笔线和华人后卫致敬氛围。</span>
           </button>
         </div>
         <span class="settings-label">音效风格</span>

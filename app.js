@@ -548,6 +548,9 @@ const state = {
   roomReady: false,
   avatarStyle: localStorage.getItem("nbaKillAvatarStyle") || "portrait",
   soundPack: localStorage.getItem("nbaKillSoundPack") || "live",
+  aiSpeed: localStorage.getItem("nbaKillAiSpeed") || "broadcast",
+  aiLevel: localStorage.getItem("nbaKillAiLevel") || "pro",
+  courtStyle: localStorage.getItem("nbaKillCourtStyle") || "nba-hardwood",
   logEntries: [],
   current: 0,
   phase: "setup",
@@ -602,6 +605,17 @@ const cardSortOrder = {
   board: 17,
   ring: 18,
 };
+const aiSpeedProfiles = {
+  broadcast: { actionDelay: 1150, nextTurnDelay: 1200, responseDelay: 900 },
+  quick: { actionDelay: 520, nextTurnDelay: 860, responseDelay: 650 },
+  instant: { actionDelay: 80, nextTurnDelay: 520, responseDelay: 320 },
+};
+const aiLevelProfiles = {
+  rookie: { maxActions: 2, identityWeight: 0.25, tacticWeight: 0.7, randomness: 36 },
+  pro: { maxActions: 3, identityWeight: 1, tacticWeight: 1, randomness: 16 },
+  legend: { maxActions: 4, identityWeight: 1.35, tacticWeight: 1.25, randomness: 7 },
+};
+const courtStyles = ["nba-hardwood", "classic-garden", "concrete-park", "rubber-training", "graffiti-street"];
 const qs = (selector) => document.querySelector(selector);
 const qsa = (selector) => Array.from(document.querySelectorAll(selector));
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
@@ -851,7 +865,7 @@ function startTurn() {
   state.phase = "play";
   render();
   if (player.ai) {
-    setTimeout(() => aiTurn(player), 700);
+    aiActionTimer = window.setTimeout(() => aiTurn(player), aiSpeedProfile().actionDelay);
   } else {
     startCountdown(45, "出牌", () => {
       showTip("进攻时间到，自动结束本回合。");
@@ -945,6 +959,7 @@ function tickClock() {
 }
 
 function render() {
+  renderCourt();
   renderScoreboard();
   renderPlayers();
   renderHand();
@@ -953,6 +968,13 @@ function render() {
   renderTargetHint();
   renderResponsePanel();
   publishGameState();
+}
+
+function renderCourt() {
+  const arena = qs(".arena");
+  if (!arena) return;
+  arena.classList.remove(...courtStyles.map((style) => `court-${style}`));
+  arena.classList.add(`court-${state.courtStyle}`);
 }
 
 function renderScoreboard() {
@@ -1645,7 +1667,7 @@ function judge(reason) {
 
 function startResponse(config) {
   if (state.pendingResponse || state.discardRequest) {
-    log("上一段响应链仍在结算，新的响应暂缓。");
+    window.setTimeout(() => startResponse(config), 300);
     return;
   }
   const target = state.players[config.playerIndex];
@@ -1671,7 +1693,7 @@ function startResponse(config) {
     autoEndTimer = window.setTimeout(() => {
       config.onFail?.();
       checkWin();
-      if (!state.gameOver && !state.discardRequest && currentPlayer()?.ai) setTimeout(nextTurn, 650);
+      if (!state.gameOver && !state.discardRequest && currentPlayer()?.ai) window.setTimeout(nextTurn, aiSpeedProfile().responseDelay);
       render();
     }, 650);
     return;
@@ -1716,7 +1738,7 @@ function respondWithCardForPlayer(playerIndex, cardId, explicitIndex = null) {
     state.pendingResponse = null;
     onSuccess?.();
     checkWin();
-    if (!state.gameOver && !state.discardRequest && currentPlayer()?.ai) setTimeout(nextTurn, 650);
+    if (!state.gameOver && !state.discardRequest && currentPlayer()?.ai) window.setTimeout(nextTurn, aiSpeedProfile().responseDelay);
   } else if (findCardIndex(player, pending.allowed) === -1) {
     showTip(`${player.role.cn} 没有剩余响应牌，自动不响应。`);
     window.setTimeout(() => passResponseForPlayer(playerIndex), 320);
@@ -1745,7 +1767,7 @@ function passResponseForPlayer(playerIndex) {
   log(`${state.players[pending.playerIndex].role.cn} 放弃响应。`);
   onFail?.();
   checkWin();
-  if (!state.gameOver && !state.discardRequest && currentPlayer()?.ai) setTimeout(nextTurn, 650);
+  if (!state.gameOver && !state.discardRequest && currentPlayer()?.ai) window.setTimeout(nextTurn, aiSpeedProfile().responseDelay);
   render();
 }
 
@@ -2002,7 +2024,7 @@ function confirmDiscardRequest(force = false) {
   state.discardRequest = null;
   onDone?.(discarded);
   if (resumeAi && !state.gameOver && currentPlayer()?.ai && !state.pendingResponse) {
-    window.setTimeout(nextTurn, 650);
+    window.setTimeout(nextTurn, aiSpeedProfile().responseDelay);
   }
   render();
 }
@@ -2036,28 +2058,102 @@ function countCards(player, ids) {
 
 function aiTurn(player) {
   if (state.gameOver || currentPlayer() !== player) return;
-  const playables = () => player.hand
-    .map((card, index) => ({ card, index }))
-    .filter(({ card }) => !card.reactive && !(card.offensive && (player.offenseLocked || !canUseOffensive(player))));
-
-  const low = player.hp < player.maxHp ? playables().find((x) => x.card.id === "timeout") : null;
-  if (low) playCard(player, low.card, state.players.indexOf(player), low.index);
-
-  const equip = playables().find((x) => x.card.equip && !player.equipment[x.card.equip]);
-  if (equip) playCard(player, equip.card, state.players.indexOf(player), equip.index);
-
-  const attempts = 2 + Math.floor(Math.random() * 2);
-  for (let i = 0; i < attempts; i += 1) {
-    const options = playables().filter(({ card }) => card.id !== "timeout" && !card.equip && hasAiTarget(player, card));
-    if (!options.length) break;
-    const preferred = options.find(({ card }) => ["breakthrough", "three", "double", "steal", "foul", "fastbreak"].includes(card.id)) || options[0];
-    const targetIndex = chooseAiTarget(player, preferred.card);
-    playCard(player, preferred.card, targetIndex, preferred.index);
-    if (state.gameOver) break;
-    if (state.discardRequest) return;
-    if (state.pendingResponse) return;
+  clearAiAction();
+  const profile = aiLevelProfile();
+  const maxActions = profile.maxActions + (Math.random() < 0.35 ? 1 : 0);
+  if (state.aiSpeed === "broadcast") {
+    log(`${player.role.cn} 观察局势：${aiPlanSummary(player)}。`);
   }
-  setTimeout(nextTurn, 860);
+  runAiAction(player, 0, maxActions);
+}
+
+function runAiAction(player, actionCount, maxActions) {
+  if (state.gameOver || currentPlayer() !== player || state.phase !== "play") return;
+  if (state.pendingResponse || state.discardRequest) return;
+  if (actionCount >= maxActions) return scheduleAiEndTurn();
+  const action = chooseAiAction(player, actionCount);
+  if (!action) return scheduleAiEndTurn();
+  if (state.aiSpeed === "broadcast") {
+    log(`${player.role.cn} 决策：${action.reason}`);
+  }
+  playCard(player, action.card, action.targetIndex, action.index);
+  if (state.gameOver || state.pendingResponse || state.discardRequest) return;
+  aiActionTimer = window.setTimeout(() => runAiAction(player, actionCount + 1, maxActions), aiSpeedProfile().actionDelay);
+}
+
+function scheduleAiEndTurn() {
+  clearAiAction();
+  aiActionTimer = window.setTimeout(() => {
+    if (!state.gameOver && !state.pendingResponse && !state.discardRequest && currentPlayer()?.ai) nextTurn();
+  }, aiSpeedProfile().nextTurnDelay);
+}
+
+function aiSpeedProfile() {
+  return aiSpeedProfiles[state.aiSpeed] || aiSpeedProfiles.broadcast;
+}
+
+function aiLevelProfile() {
+  return aiLevelProfiles[state.aiLevel] || aiLevelProfiles.pro;
+}
+
+function aiPlanSummary(player) {
+  if (state.aiLevel === "rookie") return "优先能出就出，偶尔治疗和装备";
+  if (player.identity === "队友") return "保护核心，干扰挑战者和独狼";
+  if (player.identity === "挑战者") return "压低核心体能，寻找击杀窗口";
+  if (player.identity === "独狼") return "保持残局空间，削弱所有强势角色";
+  return "维持核心生存，集火已暴露威胁";
+}
+
+function chooseAiAction(player, actionCount) {
+  const actions = aiCandidateActions(player, actionCount);
+  if (!actions.length) return null;
+  const profile = aiLevelProfile();
+  const scored = actions.map((action) => ({
+    ...action,
+    score: scoreAiAction(player, action) + Math.random() * profile.randomness,
+  })).sort((a, b) => b.score - a.score);
+  if (state.aiLevel === "rookie" && Math.random() < 0.34) {
+    return actions[Math.floor(Math.random() * actions.length)];
+  }
+  return scored[0];
+}
+
+function aiCandidateActions(player, actionCount) {
+  const selfIndex = state.players.indexOf(player);
+  const actions = [];
+  player.hand.forEach((card, index) => {
+    if (card.reactive) return;
+    if (cardBlockReason(player, card)) return;
+    if (card.target === "self" || card.target === "none") {
+      actions.push({ card, index, targetIndex: card.target === "self" ? selfIndex : null, reason: aiActionReason(player, card) });
+      return;
+    }
+    aiTargetsForCard(player, card).forEach((targetIndex) => {
+      actions.push({ card, index, targetIndex, reason: aiActionReason(player, card, state.players[targetIndex]) });
+    });
+  });
+  return actions.filter((action) => {
+    if (action.card.id === "timeout") return player.hp < player.maxHp;
+    if (action.card.id === "penalty") return player.hp < player.maxHp || state.aiLevel !== "rookie";
+    if (action.card.equip) return !player.equipment[action.card.equip];
+    if (action.card.id === "screen") return actionCount === 0 && player.hand.some((card) => card.offensive);
+    return true;
+  });
+}
+
+function aiTargetsForCard(player, card) {
+  const selfIndex = state.players.indexOf(player);
+  if (card.target === "any") {
+    return state.players
+      .map((target, index) => ({ target, index }))
+      .filter(({ target }) => target.alive)
+      .map(({ index }) => index);
+  }
+  if (card.target !== "enemy") return [];
+  return state.players
+    .map((target, index) => ({ target, index }))
+    .filter(({ target, index }) => target.alive && index !== selfIndex && isInCardRange(player, target, card))
+    .map(({ index }) => index);
 }
 
 function hasAiTarget(player, card) {
@@ -2070,18 +2166,90 @@ function hasAiTarget(player, card) {
 }
 
 function chooseAiTarget(player, card) {
-  const selfIndex = state.players.indexOf(player);
-  if (card.target === "self") return selfIndex;
-  if (card.target === "any" && Math.random() < 0.35) return selfIndex;
-  const candidates = state.players
-    .map((p, index) => ({ p, index }))
-    .filter(({ p, index }) => p.alive && index !== selfIndex && isInCardRange(player, p, card));
-  if (!candidates.length) return selfIndex;
-  const core = candidates.find(({ p }) => p.identity === "核心");
-  const weak = [...candidates].sort((a, b) => a.p.hp - b.p.hp)[0];
-  if (player.identity === "队友") return candidates.find(({ p }) => p.identity !== "核心")?.index ?? weak.index;
-  if (player.identity === "独狼" && state.players.filter((p) => p.alive).length <= 2 && core) return core.index;
-  return (core && Math.random() < 0.64) ? core.index : weak.index;
+  const targets = aiTargetsForCard(player, card);
+  if (!targets.length) return state.players.indexOf(player);
+  return targets
+    .map((targetIndex) => ({ targetIndex, score: scoreAiTarget(player, state.players[targetIndex], card) }))
+    .sort((a, b) => b.score - a.score)[0].targetIndex;
+}
+
+function scoreAiAction(player, action) {
+  const { card, targetIndex } = action;
+  const target = targetIndex === null || targetIndex === undefined ? null : state.players[targetIndex];
+  let score = 0;
+  if (card.id === "timeout") score += player.hp <= 1 ? 125 : 72 - player.hp * 8;
+  if (card.id === "penalty") score += player.hp < player.maxHp ? 64 : 24;
+  if (card.equip) score += ({ ring: 78, sleeve: 66, shoes: 54, board: 48 })[card.equip] || 40;
+  if (card.id === "screen") score += 42 + (player.hand.some((item) => item.id === "breakthrough" || item.id === "three") ? 24 : 0);
+  if (card.id === "assist") score += 36 + (target ? scoreSupportTarget(player, target) : 0);
+  if (card.id === "momentum") score += 34 + (target ? scoreSupportTarget(player, target) * 0.7 : 0);
+  if (card.id === "breakthrough") score += 56 + scoreAiTarget(player, target, card);
+  if (card.id === "three") score += 52 + scoreAiTarget(player, target, card) + (player.role.id === "curry" || player.role.id === "yi" ? 12 : 0);
+  if (card.id === "steal") score += 45 + scoreAiTarget(player, target, card) + ((target?.hand.length || 0) + Object.keys(target?.equipment || {}).length) * 5;
+  if (card.id === "double") score += 60 + scoreAiTarget(player, target, card) + aiLevelProfile().tacticWeight * 12;
+  if (card.id === "foul") score += 42 + scoreAiTarget(player, target, card) + (target?.hand.some((item) => item.offensive) ? 20 : 0);
+  if (card.id === "fastbreak") score += 58 + aiTargetsForCard(player, { id: "breakthrough", offensive: true, range: 1, target: "enemy" }).length * 10;
+  if (player.role.id === "doncic" && card.tactic) score += 10;
+  if (player.role.id === "nash" && card.id === "assist") score += 14;
+  if (state.aiLevel === "rookie" && card.tactic) score -= 10;
+  return score;
+}
+
+function scoreAiTarget(player, target, card) {
+  if (!target) return 0;
+  const profile = aiLevelProfile();
+  const identity = aiIdentityScore(player, target) * profile.identityWeight;
+  const weak = Math.max(0, target.maxHp - target.hp) * 10 + (target.hp <= 1 ? 34 : 0);
+  const handPressure = Math.max(0, 5 - target.hand.length) * 3;
+  const threat = (target.hand.length + Object.keys(target.equipment).length) * 2;
+  const lethal = card?.offensive && target.hp <= 1 ? 58 : 0;
+  return identity + weak + handPressure + threat + lethal;
+}
+
+function scoreSupportTarget(player, target) {
+  if (!target) return 0;
+  const relation = aiRelation(player, target);
+  if (state.aiLevel === "rookie") return target === player ? 16 : Math.random() * 12;
+  return relation * 38 + (target.hp <= 2 ? 12 : 0) + Math.max(0, target.maxHp - target.hand.length) * 4;
+}
+
+function aiIdentityScore(player, target) {
+  if (state.aiLevel === "rookie") return target.hp <= 2 ? 12 : 0;
+  if (target === player) return -60;
+  if (player.identity === "核心" || player.identity === "队友") {
+    if (target.identity === "挑战者") return 52;
+    if (target.identity === "独狼") return 42;
+    if (target.identity === "核心" || target.identity === "队友") return -70;
+  }
+  if (player.identity === "挑战者") {
+    if (target.identity === "核心") return 75;
+    if (target.identity === "队友") return 34;
+    if (target.identity === "挑战者") return -54;
+  }
+  if (player.identity === "独狼") {
+    if (alivePlayers().length <= 3 && target.identity === "核心") return 70;
+    return target.identity === "独狼" ? -60 : 34;
+  }
+  return 0;
+}
+
+function aiRelation(player, target) {
+  if (target === player) return 0.45;
+  if ((player.identity === "核心" || player.identity === "队友") && (target.identity === "核心" || target.identity === "队友")) return 1;
+  if (player.identity === "挑战者" && target.identity === "挑战者") return 0.85;
+  if (player.identity === "独狼") return -0.35;
+  return -0.75;
+}
+
+function aiActionReason(player, card, target = null) {
+  if (card.id === "timeout") return "体能不满，先叫暂停回血";
+  if (card.equip) return `补上 ${card.name} 提升生存或距离`;
+  if (card.id === "assist" || card.id === "momentum") return target ? `支援 ${target.role.cn}，拉高手牌资源` : "补充团队资源";
+  if (card.id === "steal") return target ? `拆掉 ${target.role.cn} 的关键牌` : "尝试拆牌";
+  if (card.id === "double") return target ? `包夹 ${target.role.cn}，逼迫弃牌或掉体能` : "制造弃牌压力";
+  if (card.id === "foul") return target ? `战术犯规限制 ${target.role.cn} 的进攻` : "限制对手进攻";
+  if (card.offensive) return target ? `攻击 ${target.role.cn}，压低体能` : "寻找进攻机会";
+  return `使用 ${card.name}`;
 }
 
 function animateBallTo(player, targetIndex) {
@@ -2122,6 +2290,7 @@ function log(message) {
 
 let countdownTimer = null;
 let autoEndTimer = null;
+let aiActionTimer = null;
 let coachTipTimer = null;
 
 function startCountdown(seconds, label, onExpire) {
@@ -2157,6 +2326,12 @@ function clearCountdown() {
 function clearAutoEnd() {
   if (autoEndTimer) window.clearTimeout(autoEndTimer);
   autoEndTimer = null;
+  clearAiAction();
+}
+
+function clearAiAction() {
+  if (aiActionTimer) window.clearTimeout(aiActionTimer);
+  aiActionTimer = null;
 }
 
 function showTip(message, duration = 3600) {
@@ -2644,6 +2819,31 @@ qsa("[data-sound-pack]").forEach((button) => {
     showTip(state.soundPack === "live" ? "已切换到球场现场音效。" : "已切换到街机合成音效。");
   });
 });
+qsa("[data-ai-speed]").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.aiSpeed = button.dataset.aiSpeed;
+    localStorage.setItem("nbaKillAiSpeed", state.aiSpeed);
+    renderSettings();
+    showTip(state.aiSpeed === "instant" ? "AI 已切换到极速节奏。" : state.aiSpeed === "quick" ? "AI 已切换到快速节奏。" : "AI 已切换到解说节奏。");
+  });
+});
+qsa("[data-ai-level]").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.aiLevel = button.dataset.aiLevel;
+    localStorage.setItem("nbaKillAiLevel", state.aiLevel);
+    renderSettings();
+    showTip(state.aiLevel === "legend" ? "AI 已切换到名人堂难度。" : state.aiLevel === "rookie" ? "AI 已切换到新秀难度。" : "AI 已切换到轮换主力难度。");
+  });
+});
+qsa("[data-court-style]").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.courtStyle = button.dataset.courtStyle;
+    localStorage.setItem("nbaKillCourtStyle", state.courtStyle);
+    renderSettings();
+    renderCourt();
+    showTip("球场背景已切换。", 1600);
+  });
+});
 qs("#roster").addEventListener("click", (event) => {
   const card = event.target.closest("[data-roster]");
   if (!card) return;
@@ -2680,6 +2880,15 @@ function renderSettings() {
   });
   qsa("[data-sound-pack]").forEach((button) => {
     button.classList.toggle("selected", button.dataset.soundPack === state.soundPack);
+  });
+  qsa("[data-ai-speed]").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.aiSpeed === state.aiSpeed);
+  });
+  qsa("[data-ai-level]").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.aiLevel === state.aiLevel);
+  });
+  qsa("[data-court-style]").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.courtStyle === state.courtStyle);
   });
 }
 
@@ -2873,6 +3082,21 @@ const bootPlayers = Number(bootParams.get("players"));
 if (bootPlayers >= 4 && bootPlayers <= 8) {
   state.playerCount = bootPlayers;
   localStorage.setItem("nbaKillPlayerCount", String(state.playerCount));
+}
+const bootAiSpeed = bootParams.get("aiSpeed");
+if (Object.keys(aiSpeedProfiles).includes(bootAiSpeed)) {
+  state.aiSpeed = bootAiSpeed;
+  localStorage.setItem("nbaKillAiSpeed", state.aiSpeed);
+}
+const bootAiLevel = bootParams.get("aiLevel");
+if (Object.keys(aiLevelProfiles).includes(bootAiLevel)) {
+  state.aiLevel = bootAiLevel;
+  localStorage.setItem("nbaKillAiLevel", state.aiLevel);
+}
+const bootCourt = bootParams.get("court");
+if (courtStyles.includes(bootCourt)) {
+  state.courtStyle = bootCourt;
+  localStorage.setItem("nbaKillCourtStyle", state.courtStyle);
 }
 
 buildRoster();
