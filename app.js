@@ -982,7 +982,7 @@ function renderCountdownControls() {
   if (endTurnBtn) {
     if (state.discardRequest?.playerIndex === localPlayerIndex()) {
       const selected = state.discardRequest.selected?.length || 0;
-      endTurnBtn.innerHTML = `确认弃置 ${selected}/${state.discardRequest.count}${countdownBadge("弃牌")}`;
+      endTurnBtn.innerHTML = `确认弃置 ${selected}/${discardRequestNeeded()}${countdownBadge("弃牌")}`;
     } else {
       endTurnBtn.innerHTML = buttonWithCountdown("结束回合", "出牌");
     }
@@ -1071,8 +1071,9 @@ function renderHand() {
     el.addEventListener("dragend", handleHandDragEnd);
   });
   qs("#sortHandBtn").disabled = state.gameOver || discardMode || user.hand.length < 2;
-  qs("#endTurnBtn").innerHTML = discardMode ? `确认弃置 ${selectedDiscard.length}/${state.discardRequest.count}${countdownBadge("弃牌")}` : buttonWithCountdown("结束回合", "出牌");
-  qs("#endTurnBtn").disabled = state.gameOver || state.pendingResponse || (discardMode && selectedDiscard.length < state.discardRequest.count) || (!discardMode && (currentPlayer() !== user || state.phase !== "play"));
+  const discardNeeded = discardMode ? discardRequestNeeded() : 0;
+  qs("#endTurnBtn").innerHTML = discardMode ? `确认弃置 ${selectedDiscard.length}/${discardNeeded}${countdownBadge("弃牌")}` : buttonWithCountdown("结束回合", "出牌");
+  qs("#endTurnBtn").disabled = state.gameOver || state.pendingResponse || (discardMode && selectedDiscard.length < discardNeeded) || (!discardMode && (currentPlayer() !== user || state.phase !== "play"));
 }
 
 function renderDiscard() {
@@ -1159,6 +1160,11 @@ function renderDiscardPanel() {
     button.addEventListener("click", () => toggleDiscardChoice(button.dataset.discardKey));
   });
   qs("[data-confirm-discard]")?.addEventListener("click", confirmDiscardRequest);
+}
+
+function discardRequestNeeded(req = state.discardRequest) {
+  if (!req) return 0;
+  return Math.min(req.count, discardableItems(state.players[req.playerIndex]).length);
 }
 
 function handleHandDragStart(event) {
@@ -1542,17 +1548,25 @@ function resolveSteal(player, target) {
 
 function resolveFastbreak(player) {
   const targets = state.players.filter((p) => p.alive && p !== player).slice(0, 2);
-  targets.forEach((target, idx) => {
-    setTimeout(() => {
+  const resolveNext = (index = 0) => {
+    if (index >= targets.length || state.gameOver || !player.alive) return;
+    if (state.pendingResponse || state.discardRequest) {
+      window.setTimeout(() => resolveNext(index), 300);
+      return;
+    }
+    const target = targets[index];
+    if (target?.alive) {
       log(`快攻冲向 ${target.role.cn}。`);
       resolveAttack(player, target, { id: "breakthrough", ...cardCatalog.breakthrough });
-      if (player.role.id === "edwards" && idx === 0) {
+      if (player.role.id === "edwards" && index === 0) {
         drawCards(player, 1);
         log("爱德华兹发动起飞隔扣。");
       }
       render();
-    }, idx * 320);
-  });
+    }
+    window.setTimeout(() => resolveNext(index + 1), 320);
+  };
+  resolveNext();
 }
 
 function resolveDouble(player, target) {
@@ -1630,9 +1644,14 @@ function judge(reason) {
 }
 
 function startResponse(config) {
+  if (state.pendingResponse || state.discardRequest) {
+    log("上一段响应链仍在结算，新的响应暂缓。");
+    return;
+  }
   const target = state.players[config.playerIndex];
   if (!target?.alive) return config.onFail?.();
-  const aiCanRespond = target.ai && findCardIndex(target, config.allowed) !== -1;
+  const availableResponses = countCards(target, config.allowed);
+  const aiCanRespond = target.ai && availableResponses >= config.need;
   if (target.ai) {
     if (aiCanRespond) {
       for (let i = 0; i < config.need; i += 1) {
@@ -1645,8 +1664,7 @@ function startResponse(config) {
     }
     return config.onFail?.();
   }
-  const hasResponse = config.allowed.some((id) => findCardIndex(target, [id]) !== -1);
-  if (!hasResponse) {
+  if (!availableResponses) {
     const allowedNames = config.allowed.map((id) => cardCatalog[id].name).join(" / ");
     showTip(`手上没有 ${allowedNames}，快速跳过响应。`);
     clearAutoEnd();
@@ -1688,17 +1706,20 @@ function respondWithCardForPlayer(playerIndex, cardId, explicitIndex = null) {
     showTip(`你没有 ${cardCatalog[cardId].name}，可以换另一张响应牌或点不响应。`);
     return;
   }
-  clearCountdown();
   clearAutoEnd();
   const card = discardCard(player, index);
   pending.used += 1;
   log(`${player.role.cn} 响应 ${card.name}。`);
   if (pending.used >= pending.need) {
+    clearCountdown();
     const onSuccess = pending.onSuccess;
     state.pendingResponse = null;
     onSuccess?.();
     checkWin();
     if (!state.gameOver && !state.discardRequest && currentPlayer()?.ai) setTimeout(nextTurn, 650);
+  } else if (findCardIndex(player, pending.allowed) === -1) {
+    showTip(`${player.role.cn} 没有剩余响应牌，自动不响应。`);
+    window.setTimeout(() => passResponseForPlayer(playerIndex), 320);
   }
   render();
 }
@@ -1856,7 +1877,7 @@ function discardableItems(player) {
     type: "hand",
     uid: card.uid,
   }));
-  if (!player.ai && isLocalPlayer(player)) return hand;
+  if (!player.ai) return hand;
   const equipment = Object.entries(player.equipment).map(([slot, card]) => ({
     key: `equip:${slot}`,
     label: `装备 · ${card.name}`,
@@ -1896,10 +1917,11 @@ function startDiscardRequest({ player, count, reason, onDone, resumeAi = false }
     onDone?.(0);
     return;
   }
+  const needed = Math.min(count, available);
   state.discardRequest = {
     playerIndex,
-    count: Math.min(count, available),
-    reason,
+    count: needed,
+    reason: count > available ? `${reason} 当前只有 ${available} 张可弃，弃完即可。` : reason,
     selected: [],
     onDone,
     resumeAi,
@@ -1920,12 +1942,13 @@ function toggleDiscardChoice(key) {
   const req = state.discardRequest;
   if (!req || req.playerIndex !== localPlayerIndex()) return;
   const selected = req.selected || [];
+  const needed = discardRequestNeeded(req);
   if (selected.includes(key)) {
     req.selected = selected.filter((item) => item !== key);
-  } else if (selected.length < req.count) {
+  } else if (selected.length < needed) {
     req.selected = [...selected, key];
   } else {
-    showTip(`最多选择 ${req.count} 张。`);
+    showTip(`最多选择 ${needed} 张。`);
   }
   if (!isAuthoritativeClient()) sendLanAction({ kind: "discard-selection", selected: req.selected });
   render();
@@ -1936,7 +1959,7 @@ function autoDiscardRequest() {
   if (!req) return;
   const player = state.players[req.playerIndex];
   const choices = discardableItems(player);
-  const needed = Math.min(req.count, choices.length);
+  const needed = discardRequestNeeded(req);
   const handKeys = player.hand.slice(Math.max(0, player.hand.length - needed)).map((card) => `hand:${card.uid}`);
   const fallbackKeys = choices.map((item) => item.key).filter((key) => !handKeys.includes(key));
   req.selected = [...handKeys, ...fallbackKeys].slice(0, needed);
@@ -1952,8 +1975,7 @@ function confirmDiscardRequest(force = false) {
     return;
   }
   const player = state.players[req.playerIndex];
-  const choices = discardableItems(player);
-  const needed = Math.min(req.count, choices.length);
+  const needed = discardRequestNeeded(req);
   if ((req.selected || []).length < needed) {
     showTip(`还需要选择 ${needed - (req.selected || []).length} 张。`);
     return;
@@ -2006,6 +2028,10 @@ function discardRandom(player) {
 
 function findCardIndex(player, ids) {
   return player.hand.findIndex((card) => ids.includes(card.id));
+}
+
+function countCards(player, ids) {
+  return player.hand.filter((card) => ids.includes(card.id)).length;
 }
 
 function aiTurn(player) {
