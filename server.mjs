@@ -79,6 +79,7 @@ function handleMessage(socket, message) {
       selectedRosterId: payload.selectedRosterId || "lebron",
       started: false,
       gameState: null,
+      chatMessages: [],
       players: [{ id: clientId, socketId: socket.id, ready: true, rosterId: payload.selectedRosterId || "lebron" }],
       sockets: new Map([[clientId, socket]]),
     };
@@ -148,6 +149,12 @@ function handleMessage(socket, message) {
     const hostSocket = room.sockets.get(room.host);
     if (!hostSocket) return send(socket, { type: "error", message: "房主暂时不在线。" });
     return send(hostSocket, { type: "game-action", room: publicRoom(room), from: clientId, action: payload.action || {} });
+  }
+  if (payload.type === "chat") {
+    const message = normalizeChatMessage(payload.message, clientId);
+    if (!message) return;
+    room.chatMessages = [...(room.chatMessages || []), message].slice(-80);
+    return broadcast(room, { type: "chat", room: publicRoom(room), message });
   }
 }
 
@@ -253,6 +260,7 @@ function publicRoom(room) {
     playerCount: room.playerCount,
     selectedRosterId: room.selectedRosterId,
     started: room.started,
+    chatMessages: room.chatMessages || [],
     players: room.players.map((player, index) => ({
       id: player.id,
       seat: index,
@@ -260,6 +268,20 @@ function publicRoom(room) {
       rosterId: player.rosterId || "lebron",
       host: player.id === room.host,
     })),
+  };
+}
+
+function normalizeChatMessage(value, clientId) {
+  const text = String(value?.text || "").trim().slice(0, 90);
+  if (!text) return null;
+  return {
+    id: String(value?.id || `${Date.now()}-${Math.random()}`).replace(/[^a-z0-9-]/gi, "").slice(0, 64),
+    text,
+    kind: ["signature", "emoji", "culture", "text"].includes(value?.kind) ? value.kind : "text",
+    speaker: String(value?.speaker || "球迷").trim().slice(0, 16),
+    roleId: String(value?.roleId || "").replace(/[^a-z0-9-]/gi, "").slice(0, 24),
+    clientId,
+    ts: Number(value?.ts) || Date.now(),
   };
 }
 

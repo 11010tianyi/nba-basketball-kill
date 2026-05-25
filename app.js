@@ -568,6 +568,7 @@ const state = {
   gameOver: false,
   sound: true,
   audioReady: false,
+  chatMessages: [],
 };
 
 const seatLayouts = {
@@ -616,6 +617,38 @@ const aiLevelProfiles = {
   legend: { maxActions: 4, identityWeight: 1.35, tacticWeight: 1.25, randomness: 7 },
 };
 const courtStyles = ["nba-hardwood", "classic-garden", "concrete-park", "rubber-training", "graffiti-street"];
+const emojiQuickChat = ["🏀", "🔥", "👑", "💍", "😤", "😂", "🤝", "🧊", "👀", "👏", "💪", "⏱️"];
+const cultureQuickChat = [
+  "这球合理", "杀疯了", "不讲理三分", "这也能进？", "防守强度拉满", "别急还有暂停",
+  "今天手感滚烫", "把球给核心", "这波要包夹", "上身体了", "裁判看一下", "教练挑战！",
+  "这就是季后赛", "关键球来了", "老大尽力了", "年轻人不讲武德", "这波血赚", "我先发育",
+  "稳住别浪", "这牌有说法", "兄弟们保核心", "独狼在笑", "队友别演", "先拆装备",
+  "别给他三分空间", "篮板保护一下", "今天是主场哨", "这回合有杀气", "别问，问就是天赋",
+  "球给到最会打的人", "这牌堆有毒", "让我看看谁是内鬼", "我赌你没防守", "这把要封神",
+  "人情世故球", "该我表演了", "你最好包夹我", "暂停回来见", "这回合我来背锅", "打到最后一分钟",
+];
+const roleQuickChat = {
+  lebron: ["克利夫兰，这是给你的！", "Taco Tuesday!", "我看到了全部传球路线", "关键时刻把球给国王"],
+  curry: ["晚安，别让库里抬手", "三分线外一步也是机会", "这个球馆该安静了", "无球跑动也能杀人"],
+  jokic: ["慢一点，我已经算完了", "传球比得分更舒服", "这球不用跳也能解决", "中轴上线，全部跑起来"],
+  giannis: ["我从中线起步了", "禁区是我的跑道", "长臂已经罩住你了", "不怕撞，就怕你不来"],
+  doncic: ["节奏在我手里", "后撤一步，故事开始", "别急，我会找到错位", "这回合我慢慢拆"],
+  shai: ["节奏变一下就过去了", "罚球线见", "冷静也是武器", "别伸手，我已经过了"],
+  tatum: ["侧翼给我清空", "关键球我来试", "今天手感正在升温", "单打不是独，是答案"],
+  edwards: ["我飞起来了", "年轻人就是要冲", "篮筐小心点", "下一球还要扣"],
+  wemby: ["天空也有防守人", "出手点再高一点试试", "禁区现在关闭", "遮天蔽日来了"],
+  brunson: ["小个子也有低位", "纽约的节奏我说了算", "背身不是中锋专属", "最后一攻我不慌"],
+  yao: ["长城站住了", "内线交给我", "盖帽之后再看一眼篮板", "中国长城，禁区关门"],
+  jordan: ["最后一投，我来", "你们都知道我要投", "胜利有标准", "防守端也要赢"],
+  kobe: ["曼巴时刻", "凌晨四点见", "把困难球给我", "这球我会负责"],
+  shaq: ["篮筐准备好了吗", "低位要塌了", "别站在我和篮筐之间", "力量也是技术"],
+  iverson: ["把答案写在变向里", "跨过去，就是空间", "我不高，但我够快", "让他们听见球鞋声"],
+  duncan: ["基本功不会骗人", "打板也算艺术", "先把位置站好", "安静地把球赢下来"],
+  nash: ["跑起来，球会到", "七秒够了", "太阳快传上线", "我先让队友舒服"],
+  yi: ["空间四号位就位", "红色罚球，我再摸一张", "中国内线也能拉开", "篮板和投射我都要"],
+  wang: ["大个子也能外弹", "内外摇摆，别猜方向", "三分线外见", "先投开，再打进去"],
+  guo: ["亚洲第一步启动", "别眨眼，我已经过了", "控球先把节奏抢回来", "这一突有点东北味"],
+};
 const qs = (selector) => document.querySelector(selector);
 const qsa = (selector) => Array.from(document.querySelectorAll(selector));
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
@@ -812,6 +845,7 @@ function initGame(options = {}) {
   state.awayScore = 0;
   state.gameOver = false;
   state.logEntries = [];
+  state.chatMessages = [];
   qs("#log").innerHTML = "";
   qs("#discardPile").innerHTML = "";
 
@@ -965,6 +999,7 @@ function render() {
   renderHand();
   renderDiscard();
   renderLog();
+  renderChat();
   renderTargetHint();
   renderResponsePanel();
   publishGameState();
@@ -1070,7 +1105,7 @@ function renderHand() {
     const discardKey = `hand:${card.uid}`;
     const disabled = discardMode ? false : Boolean(reason);
     return `
-      <button class="action-card ${disabled ? "disabled" : ""} ${discardMode ? "discard-selectable" : ""} ${selectedDiscard.includes(discardKey) ? "discard-selected" : ""}" type="button" draggable="true" data-card="${index}" data-discard-key="${discardKey}" title="${discardMode ? "点击选择弃置" : reason || card.desc}" style="--card-color:${card.color}">
+      <button class="action-card card-${card.id} kind-${cardKindClass(card)} ${disabled ? "disabled" : ""} ${discardMode ? "discard-selectable" : ""} ${selectedDiscard.includes(discardKey) ? "discard-selected" : ""}" type="button" draggable="true" data-card="${index}" data-card-id="${card.id}" data-card-type="${card.type}" data-discard-key="${discardKey}" title="${discardMode ? "点击选择弃置" : reason || card.desc}" style="--card-color:${card.color}">
         <span class="card-type">${card.type} · ${card.suit}${card.rank}</span>
         <div class="card-title">${card.name}</div>
         <div class="card-art">${card.icon}</div>
@@ -1098,6 +1133,15 @@ function renderHand() {
   qs("#endTurnBtn").disabled = state.gameOver || state.pendingResponse || (discardMode && selectedDiscard.length < discardNeeded) || (!discardMode && (currentPlayer() !== user || state.phase !== "play"));
 }
 
+function cardKindClass(card) {
+  if (card.offensive) return "offense";
+  if (card.reactive) return "reactive";
+  if (card.equip) return "equip";
+  if (card.type === "治疗") return "heal";
+  if (card.tactic) return "tactic";
+  return "utility";
+}
+
 function renderDiscard() {
   qs("#discardPile").innerHTML = state.discard.slice(-20).reverse().map((card) => `<span class="discard-chip">${card.name}</span>`).join("");
 }
@@ -1106,6 +1150,69 @@ function renderLog() {
   const logEl = qs("#log");
   if (!logEl || !state.logEntries?.length) return;
   logEl.innerHTML = state.logEntries.map((message) => `<div class="log-entry">${escapeHtml(message)}</div>`).join("");
+}
+
+function renderChat() {
+  const messagesEl = qs("#chatMessages");
+  const quickEl = qs("#quickChat");
+  if (!messagesEl || !quickEl) return;
+  const local = localPlayer();
+  qs("#chatRoleHint").textContent = local?.role ? `${local.role.cn} 专属发言` : "";
+  messagesEl.innerHTML = (state.chatMessages || []).slice(-40).map((message) => `
+    <div class="chat-message ${message.roleId === local?.role?.id ? "mine" : ""} ${message.kind === "signature" ? "signature" : ""}">
+      <span class="chat-speaker">${escapeHtml(message.speaker || "球迷")}</span>
+      <span class="chat-text">${escapeHtml(message.text)}</span>
+    </div>
+  `).join("");
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  const rolePhrases = roleQuickChat[local?.role?.id] || [];
+  quickEl.innerHTML = [
+    ...rolePhrases.map((text) => ({ text, kind: "signature" })),
+    ...emojiQuickChat.map((text) => ({ text, kind: "emoji" })),
+    ...cultureQuickChat.slice(0, 24).map((text) => ({ text, kind: "culture" })),
+  ].map((item) => `
+    <button class="${item.kind === "signature" ? "signature" : ""}" type="button" data-chat-quick="${escapeHtml(item.text)}" data-chat-kind="${item.kind}">${escapeHtml(item.text)}</button>
+  `).join("");
+  qsa("[data-chat-quick]").forEach((button) => {
+    button.addEventListener("click", () => sendChatMessage(button.dataset.chatQuick, button.dataset.chatKind));
+  });
+}
+
+function sendChatMessage(text, kind = "text") {
+  const clean = String(text || "").trim().slice(0, 90);
+  if (!clean) return;
+  const player = localPlayer();
+  const message = {
+    id: makeId("chat"),
+    text: clean,
+    kind,
+    speaker: player?.role?.cn || "球迷",
+    roleId: player?.role?.id || "",
+    clientId: state.clientId,
+    ts: Date.now(),
+  };
+  if (state.playMode === "lan" && state.roomCode) {
+    sendRoom({ type: "chat", code: state.roomCode, message });
+  } else {
+    addChatMessage(message);
+  }
+  qs("#chatInput").value = "";
+  playSound(kind === "signature" ? "signature" : "chat");
+}
+
+function addChatMessage(message) {
+  const clean = {
+    id: message.id || makeId("chat"),
+    text: String(message.text || "").trim().slice(0, 90),
+    kind: ["signature", "emoji", "culture", "text"].includes(message.kind) ? message.kind : "text",
+    speaker: String(message.speaker || "球迷").slice(0, 16),
+    roleId: String(message.roleId || "").slice(0, 24),
+    clientId: String(message.clientId || "").slice(0, 48),
+    ts: Number(message.ts) || Date.now(),
+  };
+  if (!clean.text || state.chatMessages.some((item) => item.id === clean.id)) return;
+  state.chatMessages = [...state.chatMessages, clean].slice(-80);
+  renderChat();
 }
 
 function renderTargetHint() {
@@ -1787,6 +1894,7 @@ function damage(source, target, amount, reason) {
     target.sleeveUsed = true;
     finalAmount = Math.max(0, finalAmount - 1);
     log(`${target.role.cn} 的护臂吸收了伤害。`);
+    playSound("sleeve");
   }
   if (target.role.id === "duncan" && !target.fundamentalsUsed) {
     target.fundamentalsUsed = true;
@@ -1813,7 +1921,7 @@ function attemptRescue(source, target) {
     delete target.equipment.ring;
     target.hp = 1;
     log(`${target.role.cn} 的冠军戒指生效，自动回到 1 点体能。`);
-    playSound("swish");
+    playSound("ring");
     return;
   }
   const savior = state.players.find((player) => player.alive && findCardIndex(player, ["timeout"]) !== -1);
@@ -1834,7 +1942,7 @@ function eliminate(source, target) {
   target.hand.splice(0).forEach((card) => state.discard.push(card));
   Object.keys(target.equipment).forEach((key) => delete target.equipment[key]);
   log(`${target.role.cn} 离场，身份是 ${target.identity}。`);
-  playSound("buzzer");
+  playSound("death");
   if (target.identity === "挑战者" && source?.alive) {
     drawCards(source, 3);
     log(`${source.role.cn} 淘汰挑战者，摸 3 张。`);
@@ -2384,6 +2492,9 @@ function soundForCard(card) {
   if (card.id === "breakthrough") return "bounce";
   if (card.id === "timeout") return "whistle";
   if (card.id === "block") return "block";
+  if (card.id === "challenge") return "challenge";
+  if (card.id === "penalty") return "free-throw";
+  if (card.equip) return `equip-${card.equip}`;
   if (card.id === "steal" || card.id === "double") return "whistle";
   return "draw";
 }
@@ -2420,6 +2531,7 @@ function gameSnapshot() {
     awayScore: state.awayScore,
     gameOver: state.gameOver,
     logEntries: state.logEntries || [],
+    chatMessages: state.chatMessages || [],
   }));
 }
 
@@ -2459,6 +2571,7 @@ function applyGameSnapshot(game) {
     awayScore: Number(game.awayScore) || 0,
     gameOver: Boolean(game.gameOver),
     logEntries: Array.isArray(game.logEntries) ? game.logEntries : [],
+    chatMessages: Array.isArray(game.chatMessages) ? game.chatMessages : state.chatMessages,
   });
   qs("#startModal").classList.remove("active");
   render();
@@ -2718,6 +2831,42 @@ function playSound(name) {
     tone(160, 0.08, "square", 0.035);
     tone(120, 0.08, "square", 0.025, 0.08);
   }
+  if (name === "equip-shoes") {
+    tone(260, 0.05, "triangle", 0.04);
+    tone(520, 0.08, "triangle", 0.05, 0.06);
+    filteredNoise(0.09, 0.018, "highpass", 1800, 0.8, 0.02);
+  }
+  if (name === "equip-ring" || name === "ring") {
+    tone(880, 0.16, "sine", 0.05);
+    tone(1320, 0.18, "sine", 0.035, 0.08);
+    tone(1760, 0.22, "triangle", 0.025, 0.16);
+  }
+  if (name === "equip-sleeve" || name === "sleeve") {
+    filteredNoise(0.12, 0.035, "bandpass", 680, 1.8);
+    tone(210, 0.08, "square", 0.025, 0.03);
+  }
+  if (name === "equip-board" || name === "challenge") {
+    tone(460, 0.06, "square", 0.03);
+    tone(610, 0.06, "square", 0.025, 0.07);
+    tone(760, 0.08, "triangle", 0.022, 0.14);
+  }
+  if (name === "free-throw") {
+    tone(520, 0.08, "sine", 0.035);
+    filteredNoise(0.18, 0.018, "highpass", 2200, 0.7, 0.06);
+  }
+  if (name === "death") {
+    tone(118, 0.38, "sawtooth", 0.07);
+    tone(74, 0.48, "sine", 0.04, 0.12);
+    filteredNoise(0.26, 0.04, "lowpass", 520, 0.9, 0.08);
+  }
+  if (name === "chat") {
+    tone(620, 0.045, "triangle", 0.025);
+    tone(760, 0.045, "triangle", 0.018, 0.045);
+  }
+  if (name === "signature") {
+    tone(740, 0.07, "triangle", 0.034);
+    tone(1110, 0.11, "sine", 0.026, 0.06);
+  }
 }
 
 function playLiveSound(name) {
@@ -2752,6 +2901,34 @@ function playLiveSound(name) {
   if (name === "deny") {
     playLiveClip("whistle", 0.28);
   }
+  if (name === "equip-shoes") {
+    playLiveClip("bounce", 0.34);
+    window.setTimeout(() => playLiveClip("bounce", 0.22), 110);
+  }
+  if (name === "equip-ring" || name === "ring") {
+    playLiveClip("swish", 0.52);
+    window.setTimeout(() => playLiveClip("applause", 0.3), 120);
+  }
+  if (name === "equip-sleeve" || name === "sleeve") {
+    playLiveClip("bounce", 0.45);
+  }
+  if (name === "equip-board" || name === "challenge") {
+    playLiveClip("whistle", 0.42);
+  }
+  if (name === "free-throw") {
+    playLiveClip("bounce", 0.24);
+    window.setTimeout(() => playLiveClip("swish", 0.38), 180);
+  }
+  if (name === "death") {
+    playLiveClip("whistle", 0.86);
+    window.setTimeout(() => playLiveClip("crowd", 0.38), 130);
+  }
+  if (name === "chat") {
+    playLiveClip("swish", 0.16);
+  }
+  if (name === "signature") {
+    playLiveClip("applause", 0.18);
+  }
 }
 
 qs("#startBtn").addEventListener("click", () => {
@@ -2769,6 +2946,7 @@ qs("#newGameBtn").addEventListener("click", () => {
   state.roomPlayers = [];
   state.roomStarted = false;
   state.roomReady = false;
+  state.chatMessages = [];
   roomHost = false;
   qs("#startModal").classList.add("active");
   buildRoster();
@@ -2778,6 +2956,10 @@ qs("#endTurnBtn").addEventListener("click", () => {
   else endCurrentTurn();
 });
 qs("#sortHandBtn").addEventListener("click", sortUserHand);
+qs("#chatForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  sendChatMessage(qs("#chatInput").value, "text");
+});
 qs("#soundToggle").addEventListener("click", () => {
   state.sound = !state.sound;
   if (state.sound) {
@@ -2936,6 +3118,7 @@ function connectRoomSocket() {
       state.playerCount = message.room.playerCount || state.playerCount;
       state.roomPlayers = message.room.players || [];
       state.roomStarted = Boolean(message.room.started);
+      if (Array.isArray(message.room.chatMessages)) state.chatMessages = message.room.chatMessages;
       roomHost = message.room.host === state.clientId;
       state.roomReady = Boolean(state.roomPlayers.find((player) => player.id === state.clientId)?.ready);
       if (message.room.selectedRosterId) state.selectedRosterId = message.room.selectedRosterId;
@@ -2945,6 +3128,7 @@ function connectRoomSocket() {
       qs("#roomStatus").textContent = roomStatusText(message.room, message.alreadyJoined);
       qs("#playerCountSelect").value = String(state.playerCount);
       renderLanPanel();
+      renderChat();
       buildRoster();
       if (startAfterRoomCreate && roomHost && message.type === "room-created") {
         startAfterRoomCreate = false;
@@ -2970,6 +3154,9 @@ function connectRoomSocket() {
     }
     if (message.type === "game-action") {
       applyHostAction(message.from, message.action);
+    }
+    if (message.type === "chat") {
+      addChatMessage(message.message || {});
     }
     if (message.type === "error") {
       startAfterRoomCreate = false;
