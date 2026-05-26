@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check app.js && node --check server.mjs"
+    "check": "node --check app.js && node --check server.mjs && node --check scripts/generate-card-packs-manifest.mjs",
+    "cards:manifest": "node scripts/generate-card-packs-manifest.mjs"
   }
 }

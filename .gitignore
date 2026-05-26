@@ -9,3 +9,4 @@ pnpm-debug.log*
 dist/
 build/
 coverage/
+assets/cards/manifest.json

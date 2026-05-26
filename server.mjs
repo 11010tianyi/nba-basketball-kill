@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { networkInterfaces } from "node:os";
-import { extname, join, normalize } from "node:path";
+import { basename, extname, join, normalize } from "node:path";
 import { createServer } from "node:http";
 
 const root = new URL(".", import.meta.url).pathname;
@@ -12,15 +12,27 @@ const types = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
   ".mp3": "audio/mpeg",
 };
+const cardImageExtensions = new Set([".png", ".webp", ".jpg", ".jpeg"]);
+const cardPackKinds = new Set(["offense", "reactive", "tactic", "heal", "equip", "utility"]);
 
 const server = createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  if (url.pathname === "/api/card-packs") {
+    res.writeHead(200, {
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8",
+    });
+    res.end(JSON.stringify({ packs: scanCardPacks() }));
+    return;
+  }
   const requested = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
   const file = normalize(join(root, requested));
   if (!file.startsWith(root) || !existsSync(file)) {
@@ -34,6 +46,36 @@ const server = createServer((req, res) => {
   });
   createReadStream(file).pipe(res);
 });
+
+function scanCardPacks() {
+  const cardsRoot = join(root, "assets", "cards");
+  if (!existsSync(cardsRoot)) return [];
+  return readdirSync(cardsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .map((entry) => scanCardPack(entry.name, join(cardsRoot, entry.name)))
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"));
+}
+
+function scanCardPack(folderName, folderPath) {
+  const files = {};
+  for (const entry of readdirSync(folderPath, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const ext = extname(entry.name).toLowerCase();
+    const kind = basename(entry.name, ext).toLowerCase();
+    if (!cardImageExtensions.has(ext) || !cardPackKinds.has(kind)) continue;
+    const filePath = join(folderPath, entry.name);
+    if (!statSync(filePath).isFile()) continue;
+    files[kind] = `assets/cards/${encodeURIComponent(folderName)}/${encodeURIComponent(entry.name)}`;
+  }
+  if (!Object.keys(files).length) return null;
+  return {
+    id: folderName,
+    name: folderName,
+    description: `识别到 ${Object.keys(files).length}/${cardPackKinds.size} 类卡牌背景。`,
+    files,
+  };
+}
 
 server.on("upgrade", (req, socket) => {
   if (req.url !== "/room") return socket.destroy();

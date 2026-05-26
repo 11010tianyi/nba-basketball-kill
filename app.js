@@ -548,6 +548,9 @@ const state = {
   roomReady: false,
   avatarStyle: localStorage.getItem("nbaKillAvatarStyle") || "portrait",
   soundPack: localStorage.getItem("nbaKillSoundPack") || "live",
+  cardPack: localStorage.getItem("nbaKillCardPack") || "css",
+  cardPacks: [],
+  cardPacksLoaded: false,
   aiSpeed: localStorage.getItem("nbaKillAiSpeed") || "broadcast",
   aiLevel: localStorage.getItem("nbaKillAiLevel") || "pro",
   courtStyle: localStorage.getItem("nbaKillCourtStyle") || "nba-hardwood",
@@ -617,6 +620,21 @@ const aiLevelProfiles = {
   legend: { maxActions: 4, identityWeight: 1.35, tacticWeight: 1.25, randomness: 7 },
 };
 const courtStyles = ["nba-hardwood", "classic-garden", "concrete-park", "rubber-training", "graffiti-street"];
+const cardPackKinds = ["offense", "reactive", "tactic", "heal", "equip", "utility"];
+const cardPackKindLabels = {
+  offense: "进攻",
+  reactive: "反应",
+  tactic: "战术",
+  heal: "治疗",
+  equip: "装备",
+  utility: "通用",
+};
+const builtInCardPack = {
+  id: "css",
+  name: "默认图形",
+  description: "内置 CSS 篮球图形背景；缺图时也会自动回退到这一套。",
+  files: {},
+};
 const emojiQuickChat = ["🏀", "🔥", "👑", "💍", "😤", "😂", "🤝", "🧊", "👀", "👏", "💪", "⏱️"];
 const cultureQuickChat = [
   "这球合理", "杀疯了", "不讲理三分", "这也能进？", "防守强度拉满", "别急还有暂停",
@@ -994,6 +1012,7 @@ function tickClock() {
 
 function render() {
   renderCourt();
+  renderCardPack();
   renderScoreboard();
   renderPlayers();
   renderHand();
@@ -1010,6 +1029,23 @@ function renderCourt() {
   if (!arena) return;
   arena.classList.remove(...courtStyles.map((style) => `court-${style}`));
   arena.classList.add(`court-${state.courtStyle}`);
+}
+
+function renderCardPack() {
+  const root = document.documentElement;
+  const pack = activeCardPack();
+  cardPackKinds.forEach((kind) => {
+    const url = pack.files?.[kind] || "";
+    root.style.setProperty(`--card-bg-${kind}`, url ? cssUrl(url) : "none");
+  });
+}
+
+function activeCardPack() {
+  return [builtInCardPack, ...state.cardPacks].find((pack) => pack.id === state.cardPack) || builtInCardPack;
+}
+
+function cssUrl(url) {
+  return `url("${String(url).replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}")`;
 }
 
 function renderScoreboard() {
@@ -3026,6 +3062,15 @@ qsa("[data-court-style]").forEach((button) => {
     showTip("球场背景已切换。", 1600);
   });
 });
+qs("#cardPackOptions").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-card-pack]");
+  if (!button) return;
+  state.cardPack = button.dataset.cardPack || "css";
+  localStorage.setItem("nbaKillCardPack", state.cardPack);
+  renderCardPack();
+  renderSettings();
+  showTip(state.cardPack === "css" ? "已切回默认卡牌背景。" : `卡牌背景已切换到 ${activeCardPack().name}。`, 1600);
+});
 qs("#roster").addEventListener("click", (event) => {
   const card = event.target.closest("[data-roster]");
   if (!card) return;
@@ -3057,6 +3102,7 @@ qs("#createRoomBtn").addEventListener("click", createLanRoom);
 qs("#joinRoomBtn").addEventListener("click", joinLanRoom);
 
 function renderSettings() {
+  renderCardPackOptions();
   qsa("[data-avatar-style]").forEach((button) => {
     button.classList.toggle("selected", button.dataset.avatarStyle === state.avatarStyle);
   });
@@ -3072,6 +3118,71 @@ function renderSettings() {
   qsa("[data-court-style]").forEach((button) => {
     button.classList.toggle("selected", button.dataset.courtStyle === state.courtStyle);
   });
+  qsa("[data-card-pack]").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.cardPack === state.cardPack);
+  });
+}
+
+function renderCardPackOptions() {
+  const container = qs("#cardPackOptions");
+  if (!container) return;
+  const packs = [builtInCardPack, ...state.cardPacks];
+  if (state.cardPacksLoaded && !packs.some((pack) => pack.id === state.cardPack)) {
+    state.cardPack = "css";
+    localStorage.setItem("nbaKillCardPack", state.cardPack);
+    renderCardPack();
+  }
+  container.innerHTML = packs.map((pack) => {
+    const kinds = cardPackKinds.filter((kind) => pack.files?.[kind]).map((kind) => cardPackKindLabels[kind]).join(" / ");
+    const desc = pack.id === "css" ? pack.description : `${pack.description}${kinds ? ` 已覆盖：${kinds}。` : ""}`;
+    return `
+      <button class="avatar-option ${pack.id === state.cardPack ? "selected" : ""}" type="button" data-card-pack="${escapeHtml(pack.id)}">
+        <strong>${escapeHtml(pack.name)}</strong>
+        <span>${escapeHtml(desc)}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+async function loadCardPacks() {
+  try {
+    const response = await fetch("./api/card-packs", { cache: "no-store" });
+    if (!response.ok) throw new Error("card pack api unavailable");
+    const data = await response.json();
+    state.cardPacks = sanitizeCardPacks(data.packs);
+  } catch {
+    try {
+      const response = await fetch("./assets/cards/manifest.json", { cache: "no-store" });
+      if (!response.ok) throw new Error("card pack manifest unavailable");
+      const data = await response.json();
+      state.cardPacks = sanitizeCardPacks(data.packs);
+    } catch {
+      state.cardPacks = [];
+    }
+  }
+  state.cardPacksLoaded = true;
+  renderCardPack();
+  renderSettings();
+}
+
+function sanitizeCardPacks(packs) {
+  if (!Array.isArray(packs)) return [];
+  return packs.map((pack) => {
+    const id = String(pack?.id || "").trim().slice(0, 80);
+    const name = String(pack?.name || id).trim().slice(0, 80);
+    const files = {};
+    cardPackKinds.forEach((kind) => {
+      const value = String(pack?.files?.[kind] || "").trim();
+      if (value && /\.(png|webp|jpe?g)(\?.*)?$/i.test(value)) files[kind] = value;
+    });
+    if (!id || !Object.keys(files).length) return null;
+    return {
+      id,
+      name: name || id,
+      description: String(pack?.description || "").trim().slice(0, 120) || `识别到 ${Object.keys(files).length}/${cardPackKinds.length} 类卡牌背景。`,
+      files,
+    };
+  }).filter(Boolean);
 }
 
 function renderLanPanel() {
@@ -3285,10 +3396,16 @@ if (courtStyles.includes(bootCourt)) {
   state.courtStyle = bootCourt;
   localStorage.setItem("nbaKillCourtStyle", state.courtStyle);
 }
+const bootCardPack = bootParams.get("cardPack");
+if (bootCardPack) {
+  state.cardPack = bootCardPack.slice(0, 80);
+  localStorage.setItem("nbaKillCardPack", state.cardPack);
+}
 
 buildRoster();
 renderSettings();
 render();
+loadCardPacks();
 
 if (bootParams.has("autostart")) {
   setTimeout(initGame, 80);

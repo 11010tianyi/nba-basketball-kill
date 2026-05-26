@@ -28,6 +28,9 @@ jobs:
       - name: Validate JavaScript
         run: npm run check
 
+      - name: Generate card pack manifest
+        run: npm run cards:manifest
+
       - name: Prepare static site
         run: |
           mkdir -p _site/assets
@@ -35,6 +38,7 @@ jobs:
           cp *.md _site/
           cp *.png _site/
           cp -R assets/audio _site/assets/
+          cp -R assets/cards _site/assets/
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

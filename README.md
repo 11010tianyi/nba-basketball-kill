@@ -51,7 +51,7 @@ Pages 静态版适合体验单机 AI 局、规则、角色、卡牌和界面适�
 - 球场背景：NBA 木地板、复古主场、水泥外场、橡胶训练场、林式涂鸦街球
 - 音效模式：球场现场 MP3、街机合成音效，覆盖穿鞋、冠军戒指、护臂、离场、聊天等事件
 - 聊天系统：打字、表情快捷语、NBA 球迷文化快捷语、每名球星专属金色发言
-- 卡牌视觉：不同功能牌有不同篮球图形背景，不再只是纯色文字牌
+- 卡牌视觉：不同功能牌有不同篮球图形背景；支持 `assets/cards/*/` 自定义卡牌背景包
 - 操作体验：响应链倒计时、弃牌倒计时、无牌可出快速结束、拖拽排序、一键排序、原因提示、新手规则帮助
 - 适配：桌面、iPad 横竖屏、手机布局
 
@@ -254,6 +254,29 @@ http://127.0.0.1:4173/?avatar=photo
 - `rubber-training`：橡胶训练场
 - `graffiti-street`：林式涂鸦街球风格
 
+卡牌背景包：
+
+本地服务会自动扫描 `assets/cards/` 下的子文件夹。每个子文件夹就是一个背景包，例如：
+
+```text
+assets/cards/cartoon/offense.webp
+assets/cards/cartoon/reactive.png
+assets/cards/cartoon/tactic.jpg
+assets/cards/china/offense.png
+assets/cards/dark/equip.webp
+```
+
+支持的文件名：
+
+- `offense`：进攻牌
+- `reactive`：反应牌
+- `tactic`：战术牌
+- `heal`：治疗牌
+- `equip`：装备牌
+- `utility`：其他通用牌
+
+支持 `.png`、`.webp`、`.jpg`、`.jpeg`。缺少某一类图片时，会自动回退到默认 CSS 篮球图形背景。本地模式新增或删除文件夹后重启 `npm start`，进入设置里的“卡牌背景”即可切换。GitHub Pages 部署时会由 Actions 自动生成静态清单，因此把背景包提交到仓库后 Pages 也能识别。
+
 ## 调试参数
 
 直接开局：
@@ -280,6 +303,12 @@ AI 与球场调试：
 http://127.0.0.1:4173/?autostart=1&aiSpeed=broadcast&aiLevel=legend&court=graffiti-street
 ```
 
+指定卡牌背景包：
+
+```text
+http://127.0.0.1:4173/?autostart=1&cardPack=cartoon
+```
+
 ## 文件结构
 
 - `index.html`：页面结构、弹窗、设置入口
@@ -287,6 +316,8 @@ http://127.0.0.1:4173/?autostart=1&aiSpeed=broadcast&aiLevel=legend&court=graffi
 - `app.js`：角色、牌堆、规则引擎、AI、局域网同步、音效与背景音乐
 - `server.mjs`：本地静态服务和局域网房间 WebSocket 服务
 - `assets/audio/`：真实球场 MP3 音效
+- `assets/cards/`：可选卡牌背景包目录，按子文件夹自动识别
+- `scripts/generate-card-packs-manifest.mjs`：为 GitHub Pages 生成静态卡牌背景包清单
 - `NOTES.md`：原型历史说明
 - `NBA篮球杀_全网高相关性项目清单.md`：同类身份卡牌、数字桌游、体育卡牌与可玩性参考清单
 - `卡牌视觉设计语言及规范.md`：卡牌背景、GPT-image-2 生成提示词、音效与聊天文案规范
@@ -300,6 +331,7 @@ http://127.0.0.1:4173/?autostart=1&aiSpeed=broadcast&aiLevel=legend&court=graffi
 ```bash
 npm start
 npm run check
+npm run cards:manifest
 ```
 
 如果 `4173` 被占用，可以换端口：
