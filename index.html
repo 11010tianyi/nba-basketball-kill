@@ -43,6 +43,7 @@
 
         <div id="playerGrid" class="player-grid"></div>
         <div id="ball" class="ball" aria-hidden="true"></div>
+        <div id="tipoffBanner" class="tipoff-banner"></div>
         <div id="targetHint" class="target-hint"></div>
         <div id="coachTip" class="coach-tip"></div>
       </section>
@@ -136,7 +137,7 @@
           <h2>快速规则</h2>
         </div>
         <ul class="rules-list">
-          <li>你是公开的球队核心，AI 中有队友、挑战者和独狼。</li>
+          <li>每局随机身份，你可能是核心、队友、挑战者或独狼；核心身份公开，其余身份默认隐藏。</li>
           <li>每回合摸 2 张；手牌上限等于当前体能，战术板可 +1。</li>
           <li>突破、三分、抢断、包夹、战术犯规需要满足距离。</li>
           <li>被进攻时进入响应链，可用防守或盖帽；部分强攻需要 2 张响应。</li>
@@ -150,6 +151,21 @@
         </ul>
         <div class="modal-footer">
           <button id="closeRulesBtn" type="button">明白</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="endModal" class="modal" role="dialog" aria-modal="true">
+      <div class="modal-card end-card">
+        <div class="modal-header">
+          <span class="eyebrow">Final Buzzer</span>
+          <h2>终场</h2>
+          <p id="endSummary">比赛结束。</p>
+        </div>
+        <div class="end-actions">
+          <button id="homeFromEndBtn" class="ghost" type="button">返回首页</button>
+          <button id="rematchBtn" type="button">重来本局</button>
+          <button id="randomStartBtn" type="button">随机开局</button>
         </div>
       </div>
     </div>

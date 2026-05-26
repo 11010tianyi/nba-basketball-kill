@@ -569,6 +569,8 @@ const state = {
   homeScore: 0,
   awayScore: 0,
   gameOver: false,
+  finishMessage: "",
+  tipoffText: "",
   sound: true,
   audioReady: false,
   chatMessages: [],
@@ -806,6 +808,7 @@ function commonsPhoto(file) {
 function initGame(options = {}) {
   clearCountdown();
   clearAutoEnd();
+  hideEndModal();
   unlockAudio();
   startMusic();
   const selected = roster.find((p) => p.id === state.selectedRosterId) || roster[0];
@@ -823,15 +826,16 @@ function initGame(options = {}) {
   const usedRoleIds = new Set(humanRoles.map((role) => role.id));
   const fillRoles = shuffle(roster.filter((role) => !usedRoleIds.has(role.id))).slice(0, Math.max(0, count - humanRoles.length));
   const roles = options.lan && humanRoles.length ? [...humanRoles, ...fillRoles] : [selected, ...shuffle(roster.filter((p) => p.id !== selected.id)).slice(0, count - 1)];
-  const aiIdentities = shuffle(identityLayouts[count] || identityLayouts[4]);
+  const identities = shuffle(["核心", ...(identityLayouts[count] || identityLayouts[4])]);
+  const firstIndex = Math.floor(Math.random() * count);
   state.players = roles.map((role, index) => ({
     id: makeId("player"),
     seat: seats[index],
     role,
-    identity: index === 0 ? "核心" : aiIdentities[index - 1],
-    revealed: index === 0,
-    hp: role.hp + (index === 0 ? 1 : 0),
-    maxHp: role.hp + (index === 0 ? 1 : 0),
+    identity: identities[index],
+    revealed: identities[index] === "核心",
+    hp: role.hp + (identities[index] === "核心" ? 1 : 0),
+    maxHp: role.hp + (identities[index] === "核心" ? 1 : 0),
     hand: [],
     equipment: {},
     alive: true,
@@ -848,8 +852,8 @@ function initGame(options = {}) {
   }));
   state.deck = buildDeck();
   state.discard = [];
-  state.current = 0;
-  state.phase = "draw";
+  state.current = firstIndex;
+  state.phase = "tipoff";
   state.offensiveUsed = false;
   state.selectedCardIndex = null;
   state.awaitingTarget = null;
@@ -862,6 +866,8 @@ function initGame(options = {}) {
   state.homeScore = 0;
   state.awayScore = 0;
   state.gameOver = false;
+  state.finishMessage = "";
+  state.tipoffText = `跳球！${state.players[firstIndex].role.cn} 获得球权，本局由他首先发动进攻。`;
   state.logEntries = [];
   state.chatMessages = [];
   qs("#log").innerHTML = "";
@@ -869,11 +875,26 @@ function initGame(options = {}) {
 
   state.players.forEach((player) => drawCards(player, 4, false));
   qs("#startModal").classList.remove("active");
-  log(options.lan ? "局域网开球！房主同步整场比赛。" : "开球！你是球队核心，身份公开。");
-  showTip("新手提示：先点一张手牌，再点球员目标。结束回合若超出手牌上限，可以自己选择弃牌。", 6200);
-  playSound("crowd");
-  startTurn();
+  log(options.lan ? "局域网开球！房主同步整场比赛。" : "自动开球！裁判准备跳球。");
+  log(identityGoalText(localPlayer()));
+  render();
+  startTipoffSequence(firstIndex, () => {
+    if (state.gameOver || state.phase !== "tipoff") return;
+    state.phase = "draw";
+    state.tipoffText = "";
+    showTip(`${identityGoalText(localPlayer())} 新手提示：先点一张手牌，再点球员目标。`, 8200);
+    startTurn();
+  });
   publishGameState();
+}
+
+function identityGoalText(player = localPlayer()) {
+  const identity = player?.identity || "未知";
+  if (identity === "核心") return `你的身份是核心：身份公开。目标是带领核心阵营清除所有挑战者和独狼；你离场通常会导致挑战者获胜。`;
+  if (identity === "队友") return `你的身份是队友：隐藏身份。目标是保护核心，协助清除挑战者和独狼。`;
+  if (identity === "挑战者") return `你的身份是挑战者：隐藏身份。目标是让核心离场。`;
+  if (identity === "独狼") return `你的身份是独狼：隐藏身份。目标是活到最后，成为唯一幸存者。`;
+  return "你的身份尚未揭晓：观察局势，等待开球。";
 }
 
 function drawOne() {
@@ -890,7 +911,7 @@ function drawCards(player, count, announce = true) {
     if (card) player.hand.push(card);
   }
   if (announce) log(`${player.role.cn} 摸了 ${count} 张牌。`);
-  playSound("draw");
+  if (announce) playSound("draw");
 }
 
 function startTurn() {
@@ -1021,6 +1042,8 @@ function render() {
   renderChat();
   renderTargetHint();
   renderResponsePanel();
+  renderTipoff();
+  renderEndModal();
   publishGameState();
 }
 
@@ -1087,6 +1110,7 @@ function renderCountdownControls() {
 
 function phaseLabel() {
   if (state.gameOver) return "终场";
+  if (state.phase === "tipoff") return "跳球";
   if (state.discardRequest) return "弃牌";
   if (state.pendingResponse) return "响应";
   if (state.awaitingTarget) return "选目标";
@@ -1141,7 +1165,7 @@ function renderHand() {
     const discardKey = `hand:${card.uid}`;
     const disabled = discardMode ? false : Boolean(reason);
     return `
-      <button class="action-card card-${card.id} kind-${cardKindClass(card)} ${disabled ? "disabled" : ""} ${discardMode ? "discard-selectable" : ""} ${selectedDiscard.includes(discardKey) ? "discard-selected" : ""}" type="button" draggable="true" data-card="${index}" data-card-id="${card.id}" data-card-type="${card.type}" data-discard-key="${discardKey}" title="${discardMode ? "点击选择弃置" : reason || card.desc}" style="--card-color:${card.color}">
+      <button class="action-card card-${card.id} kind-${cardKindClass(card)} ${state.selectedCardIndex === index ? "selected-card" : ""} ${disabled ? "disabled" : ""} ${discardMode ? "discard-selectable" : ""} ${selectedDiscard.includes(discardKey) ? "discard-selected" : ""}" type="button" draggable="true" data-card="${index}" data-card-id="${card.id}" data-card-type="${card.type}" data-discard-key="${discardKey}" title="${discardMode ? "点击选择弃置" : reason || card.desc}" style="--card-color:${card.color}">
         <span class="card-type">${card.type} · ${card.suit}${card.rank}</span>
         <div class="card-title">${card.name}</div>
         <div class="card-art">${card.icon}</div>
@@ -1261,6 +1285,36 @@ function renderTargetHint() {
   const card = state.awaitingTarget.card;
   hint.textContent = `选择 ${card.name} 的目标`;
   hint.classList.add("active");
+}
+
+function renderTipoff() {
+  const banner = qs("#tipoffBanner");
+  if (!banner) return;
+  if (state.phase === "tipoff" && state.tipoffText) {
+    banner.textContent = state.tipoffText;
+    banner.classList.add("active");
+  } else {
+    banner.classList.remove("active");
+    banner.textContent = "";
+  }
+}
+
+function renderEndModal() {
+  const modal = qs("#endModal");
+  if (!modal) return;
+  if (!state.gameOver) {
+    modal.classList.remove("active");
+    return;
+  }
+  qs("#endSummary").textContent = state.finishMessage || "比赛结束。";
+  const locked = state.playMode === "lan" && state.roomCode && !roomHost;
+  qs("#rematchBtn").disabled = locked;
+  qs("#randomStartBtn").disabled = locked;
+  modal.classList.add("active");
+}
+
+function hideEndModal() {
+  qs("#endModal")?.classList.remove("active");
 }
 
 function renderResponsePanel() {
@@ -1993,6 +2047,7 @@ function eliminate(source, target) {
 function checkWin() {
   const core = state.players.find((p) => p.identity === "核心");
   const alive = state.players.filter((p) => p.alive);
+  if (!core) return null;
   if (!core.alive && alive.length === 1 && alive[0].identity === "独狼") {
     return finishGame("独狼获胜，完成最后单挑。");
   }
@@ -2008,9 +2063,14 @@ function finishGame(message) {
   if (state.gameOver) return;
   state.gameOver = true;
   state.phase = "gameover";
+  state.finishMessage = message;
+  state.tipoffText = "";
+  clearCountdown();
+  clearAutoEnd();
   log(`终场：${message}`);
   stopMusic();
   playSound("buzzer");
+  window.setTimeout(() => playSound("applause"), 180);
   render();
 }
 
@@ -2397,19 +2457,48 @@ function aiActionReason(player, card, target = null) {
 }
 
 function animateBallTo(player, targetIndex) {
-  const ball = qs("#ball");
   const fromEl = qs(`[data-player="${state.players.indexOf(player)}"]`);
   const toEl = targetIndex !== null && targetIndex !== undefined ? qs(`[data-player="${targetIndex}"]`) : fromEl;
   if (!fromEl || !toEl) return;
+  moveBallToElement(toEl, true);
+}
+
+function moveBallToElement(toEl, shoot = false) {
+  const ball = qs("#ball");
   const arenaBox = qs(".arena").getBoundingClientRect();
   const toBox = toEl.getBoundingClientRect();
   const x = toBox.left + toBox.width / 2 - arenaBox.left;
   const y = toBox.top + toBox.height / 2 - arenaBox.top;
   ball.style.left = `${x}px`;
   ball.style.top = `${y}px`;
-  ball.classList.remove("shoot");
+  ball.classList.remove("shoot", "tipoff");
   void ball.offsetWidth;
-  ball.classList.add("shoot");
+  if (shoot) ball.classList.add("shoot");
+}
+
+function startTipoffSequence(firstIndex, onDone) {
+  const ball = qs("#ball");
+  const arena = qs(".arena");
+  if (!ball || !arena) {
+    onDone?.();
+    return;
+  }
+  ball.style.left = "50%";
+  ball.style.top = "50%";
+  ball.classList.remove("shoot", "tipoff");
+  void ball.offsetWidth;
+  playSound("whistle");
+  window.setTimeout(() => {
+    ball.classList.add("tipoff");
+  }, 60);
+  window.setTimeout(() => {
+    playSound("bounce");
+    const winnerSeat = qs(`[data-player="${firstIndex}"]`);
+    if (winnerSeat) moveBallToElement(winnerSeat, true);
+  }, 940);
+  window.setTimeout(() => {
+    onDone?.();
+  }, 1650);
 }
 
 function flashSeat(player) {
@@ -2566,6 +2655,8 @@ function gameSnapshot() {
     homeScore: state.homeScore,
     awayScore: state.awayScore,
     gameOver: state.gameOver,
+    finishMessage: state.finishMessage,
+    tipoffText: state.tipoffText,
     logEntries: state.logEntries || [],
     chatMessages: state.chatMessages || [],
   }));
@@ -2583,6 +2674,7 @@ function publishGameState() {
 
 function applyGameSnapshot(game) {
   if (!game || roomHost) return;
+  const previousPhase = state.phase;
   if (countdownTimer) window.clearInterval(countdownTimer);
   if (autoEndTimer) window.clearTimeout(autoEndTimer);
   countdownTimer = null;
@@ -2606,12 +2698,17 @@ function applyGameSnapshot(game) {
     homeScore: Number(game.homeScore) || 0,
     awayScore: Number(game.awayScore) || 0,
     gameOver: Boolean(game.gameOver),
+    finishMessage: game.finishMessage || "",
+    tipoffText: game.tipoffText || "",
     logEntries: Array.isArray(game.logEntries) ? game.logEntries : [],
     chatMessages: Array.isArray(game.chatMessages) ? game.chatMessages : state.chatMessages,
   });
   qs("#startModal").classList.remove("active");
   render();
   applyingRemoteState = false;
+  if (previousPhase !== "tipoff" && state.phase === "tipoff") {
+    startTipoffSequence(state.current, null);
+  }
 }
 
 function sendLanAction(action) {
@@ -2863,6 +2960,11 @@ function playSound(name) {
     tone(220, 0.14, "triangle", 0.025);
     tone(330, 0.18, "triangle", 0.02, 0.12);
   }
+  if (name === "applause") {
+    filteredNoise(0.34, 0.024, "bandpass", 1400, 0.8);
+    tone(520, 0.12, "triangle", 0.02, 0.04);
+    tone(690, 0.16, "triangle", 0.018, 0.14);
+  }
   if (name === "deny") {
     tone(160, 0.08, "square", 0.035);
     tone(120, 0.08, "square", 0.025, 0.08);
@@ -2934,6 +3036,9 @@ function playLiveSound(name) {
   if (name === "crowd") {
     playLiveClip("applause", 0.28);
   }
+  if (name === "applause") {
+    playLiveClip("applause", 0.52);
+  }
   if (name === "deny") {
     playLiveClip("whistle", 0.28);
   }
@@ -2970,14 +3075,19 @@ function playLiveSound(name) {
 qs("#startBtn").addEventListener("click", () => {
   if (!startLanRoomGame()) initGame();
 });
-qs("#newGameBtn").addEventListener("click", () => {
+function returnToHome() {
   clearCountdown();
   clearAutoEnd();
   stopMusic();
+  hideEndModal();
   qs("#log").innerHTML = "";
   qs("#discardPile").innerHTML = "";
   state.pendingResponse = null;
   state.discardRequest = null;
+  state.finishMessage = "";
+  state.tipoffText = "";
+  state.gameOver = false;
+  state.phase = "setup";
   state.roomCode = "";
   state.roomPlayers = [];
   state.roomStarted = false;
@@ -2986,6 +3096,35 @@ qs("#newGameBtn").addEventListener("click", () => {
   roomHost = false;
   qs("#startModal").classList.add("active");
   buildRoster();
+  render();
+}
+qs("#newGameBtn").addEventListener("click", () => {
+  returnToHome();
+});
+qs("#homeFromEndBtn").addEventListener("click", returnToHome);
+qs("#rematchBtn").addEventListener("click", () => {
+  hideEndModal();
+  if (state.playMode === "lan" && state.roomCode) {
+    if (!roomHost) return showTip("局域网房间由房主重新开球。");
+    initGame({ lan: true });
+    return;
+  }
+  initGame();
+});
+qs("#randomStartBtn").addEventListener("click", () => {
+  hideEndModal();
+  if (state.playMode === "lan" && state.roomCode) {
+    if (!roomHost) return showTip("局域网房间由房主重新开球。");
+    state.selectedRosterId = roster[Math.floor(Math.random() * roster.length)].id;
+    initGame({ lan: true });
+    return;
+  }
+  state.playerCount = 4 + Math.floor(Math.random() * 5);
+  state.selectedRosterId = roster[Math.floor(Math.random() * roster.length)].id;
+  localStorage.setItem("nbaKillPlayerCount", String(state.playerCount));
+  qs("#playerCountSelect").value = String(state.playerCount);
+  buildRoster();
+  initGame();
 });
 qs("#endTurnBtn").addEventListener("click", () => {
   if (state.discardRequest?.playerIndex === localPlayerIndex()) confirmDiscardRequest();
