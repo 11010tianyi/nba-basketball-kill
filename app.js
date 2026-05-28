@@ -1203,7 +1203,10 @@ function cardKindClass(card) {
 }
 
 function renderDiscard() {
-  qs("#discardPile").innerHTML = state.discard.slice(-20).reverse().map((card) => `<span class="discard-chip">${card.name}</span>`).join("");
+  const cards = state.discard.slice(-16).reverse();
+  qs("#discardPile").innerHTML = cards.length
+    ? cards.map((card) => `<span class="discard-chip">${card.name}</span>`).join("")
+    : "<span class='discard-empty'>暂无弃牌</span>";
 }
 
 function renderLog() {
