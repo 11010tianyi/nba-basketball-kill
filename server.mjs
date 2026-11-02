@@ -93,6 +93,7 @@ server.on("upgrade", (req, socket) => {
   ].join("\r\n"));
   socket.id = randomBytes(4).toString("hex");
   socket.frameBuffer = Buffer.alloc(0);
+  socket.textBuffer = "";
   socket.on("data", (data) => {
     socket.frameBuffer = Buffer.concat([socket.frameBuffer, data]);
     parseFrames(socket).forEach((message) => handleMessage(socket, message));
@@ -204,12 +205,8 @@ function parseFrames(socket) {
   const messages = [];
   let buffer = socket.frameBuffer;
   while (buffer.length >= 2) {
+    const fin = Boolean(buffer[0] & 0x80);
     const opcode = buffer[0] & 0x0f;
-    if (opcode === 8) {
-      socket.end();
-      socket.frameBuffer = Buffer.alloc(0);
-      return messages;
-    }
     let offset = 2;
     let length = buffer[1] & 0x7f;
     if (length === 126) {
@@ -230,8 +227,28 @@ function parseFrames(socket) {
     if (mask) {
       for (let i = 0; i < payload.length; i += 1) payload[i] ^= mask[i % 4];
     }
-    messages.push(payload.toString("utf8"));
     buffer = buffer.subarray(offset + length);
+    if (opcode === 8) {
+      socket.end();
+      buffer = Buffer.alloc(0);
+      break;
+    }
+    if (opcode === 9) {
+      sendFrame(socket, 0x8a, payload);
+      continue;
+    }
+    if (opcode !== 1 && opcode !== 0) continue;
+    if (opcode === 1) socket.textBuffer = "";
+    socket.textBuffer += payload.toString("utf8");
+    if (socket.textBuffer.length > 2_000_000) {
+      socket.textBuffer = "";
+      send(socket, { type: "error", message: "消息过大，已忽略。" });
+      continue;
+    }
+    if (fin) {
+      messages.push(socket.textBuffer);
+      socket.textBuffer = "";
+    }
   }
   socket.frameBuffer = buffer;
   return messages;
@@ -256,25 +273,29 @@ function parseFrame(buffer) {
   return payload.toString("utf8");
 }
 
-function send(socket, data) {
+function sendFrame(socket, opcode, payload = Buffer.alloc(0)) {
   if (!socket || socket.destroyed || socket.writableEnded || socket.writableDestroyed) return;
-  const json = Buffer.from(JSON.stringify(data));
+  const body = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
   let header;
-  if (json.length < 126) {
-    header = Buffer.from([0x81, json.length]);
-  } else if (json.length <= 0xffff) {
-    header = Buffer.from([0x81, 126, json.length >> 8, json.length & 255]);
+  if (body.length < 126) {
+    header = Buffer.from([opcode, body.length]);
+  } else if (body.length <= 0xffff) {
+    header = Buffer.from([opcode, 126, body.length >> 8, body.length & 255]);
   } else {
     header = Buffer.alloc(10);
-    header[0] = 0x81;
+    header[0] = opcode;
     header[1] = 127;
-    header.writeBigUInt64BE(BigInt(json.length), 2);
+    header.writeBigUInt64BE(BigInt(body.length), 2);
   }
   try {
-    socket.write(Buffer.concat([header, json]));
+    socket.write(Buffer.concat([header, body]));
   } catch {
     leaveRooms(socket);
   }
+}
+
+function send(socket, data) {
+  sendFrame(socket, 0x81, Buffer.from(JSON.stringify(data)));
 }
 
 function broadcast(room, data) {

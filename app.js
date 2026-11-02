@@ -806,6 +806,8 @@ function commonsPhoto(file) {
 }
 
 function initGame(options = {}) {
+  turnSerial += 1;
+  chainQueue = [];
   clearCountdown();
   clearAutoEnd();
   hideEndModal();
@@ -849,6 +851,7 @@ function initGame(options = {}) {
     extraOffenseUsed: false,
     yaoBlockDrawn: false,
     lowHpTriggered: false,
+    tacticBonusUsed: false,
   }));
   state.deck = buildDeck();
   state.discard = [];
@@ -867,6 +870,10 @@ function initGame(options = {}) {
   state.awayScore = 0;
   state.gameOver = false;
   state.finishMessage = "";
+  state.suddenDeath = false;
+  state.staleRounds = 0;
+  state.aliveStamp = "";
+  state.roundSteps = 0;
   state.tipoffText = `跳球！${state.players[firstIndex].role.cn} 获得球权，本局由他首先发动进攻。`;
   state.logEntries = [];
   state.chatMessages = [];
@@ -899,23 +906,34 @@ function identityGoalText(player = localPlayer()) {
 
 function drawOne() {
   if (!state.deck.length) {
-    state.deck = shuffle(state.discard.splice(0).map((card) => cloneCard(card.id)));
+    const recycled = state.discard.splice(0).filter((card) => card?.id && cardCatalog[card.id]);
+    if (!recycled.length) {
+      log("牌堆和弃牌都空了，这张牌摸不到。");
+      return null;
+    }
+    state.deck = shuffle(recycled.map((card) => cloneCard(card.id)));
     log("牌堆打乱重洗。");
   }
-  return state.deck.pop();
+  return state.deck.pop() || null;
 }
 
 function drawCards(player, count, announce = true) {
+  let drawn = 0;
   for (let i = 0; i < count; i += 1) {
     const card = drawOne();
-    if (card) player.hand.push(card);
+    if (!card) break;
+    player.hand.push(card);
+    drawn += 1;
   }
-  if (announce) log(`${player.role.cn} 摸了 ${count} 张牌。`);
-  if (announce) playSound("draw");
+  if (!announce || !drawn) return;
+  log(`${player.role.cn} 摸了 ${drawn} 张牌。`);
+  playSound("draw");
 }
 
 function startTurn() {
   if (state.gameOver) return;
+  turnSerial += 1;
+  chainQueue = [];
   clearCountdown();
   clearAutoEnd();
   const player = currentPlayer();
@@ -924,13 +942,12 @@ function startTurn() {
   state.offensiveUsed = false;
   state.awaitingTarget = null;
   state.selectedCardIndex = null;
-  player.autoGuardUsed = false;
-  player.sleeveUsed = false;
-  player.fundamentalsUsed = false;
-  player.yaoBlockDrawn = false;
+  state.pendingResponse = null;
   player.offenseLocked = false;
   player.extraOffenseUsed = false;
-  player.screenTurns = Math.max(0, player.screenTurns || 0);
+  player.tacticBonusUsed = false;
+  // 挡拆只在打出的这一回合内生效，未使用的距离加成不带到下回合。
+  player.screenTurns = 0;
   tickClock();
   render();
   log(`轮到 ${player.role.cn}。`);
@@ -978,32 +995,65 @@ function isLanHostGame() {
 }
 
 function nextTurn() {
-  if (!cleanupHandLimit(currentPlayer(), advanceTurn)) return;
+  if (state.gameOver) return;
+  const player = currentPlayer();
+  if (!player) return;
+  if (!cleanupHandLimit(player, advanceTurn)) return;
   advanceTurn();
 }
 
 function advanceTurn() {
+  if (state.gameOver) return;
+  if (!state.players.some((player) => player.alive)) {
+    finishGame("场上已无存活球员，比赛结束。");
+    return;
+  }
   clearCountdown();
   clearAutoEnd();
-  state.current = nextAliveIndex(state.current);
+  const next = nextAliveIndex(state.current);
+  if (!state.players[next]?.alive) {
+    finishGame("场上已无存活球员，比赛结束。");
+    return;
+  }
+  state.current = next;
   state.turnNumber += 1;
-  if (state.turnNumber % 4 === 1) {
-    state.players.forEach((p) => {
-      p.autoGuardUsed = false;
-      p.sleeveUsed = false;
-      p.fundamentalsUsed = false;
-      p.yaoBlockDrawn = false;
+  state.roundSteps = (state.roundSteps || 0) + 1;
+  const alive = state.players.filter((player) => player.alive);
+  if (state.roundSteps >= alive.length) {
+    state.roundSteps = 0;
+    alive.forEach((player) => {
+      player.autoGuardUsed = false;
+      player.sleeveUsed = false;
+      player.fundamentalsUsed = false;
+      player.yaoBlockDrawn = false;
     });
+    noteSurvivalRound(alive);
   }
   startTurn();
 }
 
+function noteSurvivalRound(alive) {
+  const stamp = alive.map((player) => player.id).join(",");
+  if (stamp && stamp === state.aliveStamp) state.staleRounds += 1;
+  else {
+    state.staleRounds = 0;
+    state.aliveStamp = stamp;
+  }
+  const limit = alive.length <= 2 ? 1 : 6;
+  if (!state.suddenDeath && state.aliveStamp && state.staleRounds >= limit) {
+    state.suddenDeath = true;
+    log("进入绝杀时间：减伤失效，暂停和冠军戒指不能再阻止离场。");
+  }
+}
+
 function nextAliveIndex(from) {
+  if (!state.players.length || !state.players.some((player) => player.alive)) return from;
   let next = from;
-  do {
+  for (let guard = 0; guard < state.players.length; guard += 1) {
     next = (next + 1) % state.players.length;
-  } while (!state.players[next].alive);
-  return next;
+    if (state.players[next].alive) return next;
+  }
+  return from;
 }
 
 function cleanupHandLimit(player, onDone = null) {
@@ -1188,6 +1238,16 @@ function renderHand() {
     el.addEventListener("dragend", handleHandDragEnd);
   });
   qs("#sortHandBtn").disabled = state.gameOver || discardMode || user.hand.length < 2;
+  const equipDiscards = discardMode && state.discardRequest?.includeEquipment
+    ? Object.entries(user.equipment).map(([slot, card]) => {
+      const key = `equip:${slot}`;
+      return `<button class="equip-discard ${selectedDiscard.includes(key) ? "discard-selected" : ""}" type="button" data-discard-key="${key}">弃装备<br>${card.name}</button>`;
+    }).join("")
+    : "";
+  if (equipDiscards) hand.insertAdjacentHTML("afterbegin", equipDiscards);
+  qsa("#hand .equip-discard").forEach((el) => {
+    el.addEventListener("click", () => toggleDiscardChoice(el.dataset.discardKey));
+  });
   const discardNeeded = discardMode ? discardRequestNeeded() : 0;
   qs("#endTurnBtn").innerHTML = discardMode ? `确认弃置 ${selectedDiscard.length}/${discardNeeded}${countdownBadge("弃牌")}` : buttonWithCountdown("结束回合", "出牌");
   qs("#endTurnBtn").disabled = state.gameOver || state.pendingResponse || (discardMode && selectedDiscard.length < discardNeeded) || (!discardMode && (currentPlayer() !== user || state.phase !== "play"));
@@ -1322,7 +1382,7 @@ function hideEndModal() {
 
 function renderResponsePanel() {
   const panel = qs("#responsePanel");
-  if (!state.pendingResponse || state.pendingResponse.playerIndex !== localPlayerIndex()) {
+  if (!state.pendingResponse || state.pendingResponse.autoPass || state.pendingResponse.playerIndex !== localPlayerIndex()) {
     panel.classList.remove("active");
     panel.innerHTML = "";
     return;
@@ -1358,7 +1418,7 @@ function renderDiscardPanel() {
     return;
   }
   const player = state.players[req.playerIndex];
-  const choices = discardableItems(player);
+  const choices = discardableItems(player, req.includeEquipment);
   const needed = Math.min(req.count, choices.length);
   const selected = req.selected || [];
   panel.classList.add("active");
@@ -1386,7 +1446,7 @@ function renderDiscardPanel() {
 
 function discardRequestNeeded(req = state.discardRequest) {
   if (!req) return 0;
-  return Math.min(req.count, discardableItems(state.players[req.playerIndex]).length);
+  return Math.min(req.count, discardableItems(state.players[req.playerIndex], req.includeEquipment).length);
 }
 
 function handleHandDragStart(event) {
@@ -1493,6 +1553,7 @@ function cardBlockReason(player, card) {
   if (state.gameOver) return "比赛已经结束。";
   if (state.discardRequest) return "正在弃牌，请先完成弃牌选择。";
   if (state.pendingResponse) {
+    if (state.pendingResponse.autoPass) return "上一次响应正在结算。";
     if (state.pendingResponse.playerIndex !== state.players.indexOf(player)) return "现在不是你响应。";
     if (!state.pendingResponse.allowed.includes(card.id)) {
       const allowedNames = state.pendingResponse.allowed.map((id) => cardCatalog[id].name).join(" / ");
@@ -1521,6 +1582,13 @@ function selectCard(index) {
   if (!player) return;
   const card = player.hand[index];
   if (!card) return;
+  if (state.awaitingTarget?.cardIndex === index && state.awaitingTarget.playerIndex === localPlayerIndex()) {
+    state.awaitingTarget = null;
+    state.selectedCardIndex = null;
+    showTip("已取消这张牌，可以改出别的牌。");
+    render();
+    return;
+  }
   const reason = cardBlockReason(player, card);
   if (reason) {
     showTip(reason);
@@ -1532,7 +1600,7 @@ function selectCard(index) {
     respondWithCard(card.id, index);
     return;
   }
-  state.selectedCardIndex = index;
+  state.selectedCardIndex = null;
   if (card.target === "none" || card.target === "self") {
     const targetIndex = card.target === "self" ? localPlayerIndex() : null;
     if (!isAuthoritativeClient()) {
@@ -1541,6 +1609,7 @@ function selectCard(index) {
     }
     playCard(player, card, targetIndex, index);
   } else {
+    state.selectedCardIndex = index;
     state.awaitingTarget = { playerIndex: localPlayerIndex(), card, cardIndex: index };
     showTip(`请选择 ${card.name} 的目标。`);
     render();
@@ -1647,7 +1716,13 @@ function targetBlockReason(targetIndex) {
 }
 
 function playCard(player, card, targetIndex, cardIndex = player.hand.findIndex((c) => c.uid === card.uid)) {
-  if (!player.alive) return;
+  if (!player?.alive || state.gameOver) return;
+  if (cardIndex < 0 || player.hand[cardIndex]?.uid !== card.uid) {
+    cardIndex = player.hand.findIndex((item) => item.uid === card.uid);
+  }
+  if (cardIndex < 0) return;
+  state.selectedCardIndex = null;
+  state.awaitingTarget = null;
   const [used] = player.hand.splice(cardIndex, 1);
   if (used && !card.equip) state.discard.push(used);
   if (card.offensive) {
@@ -1655,7 +1730,8 @@ function playCard(player, card, targetIndex, cardIndex = player.hand.findIndex((
     state.offensiveUsed = true;
     if (player.screenTurns > 0) player.screenTurns -= 1;
   }
-  log(`${player.role.cn} 使用 ${card.name}${targetIndex !== null && targetIndex !== undefined ? `，目标 ${state.players[targetIndex].role.cn}` : ""}。`);
+  const targetPlayer = targetIndex === null || targetIndex === undefined ? null : state.players[targetIndex];
+  log(`${player.role.cn} 使用 ${card.name}${targetPlayer ? `，目标 ${targetPlayer.role.cn}` : ""}。`);
   animateBallTo(player, targetIndex);
   playSound(soundForCard(card));
 
@@ -1671,7 +1747,8 @@ function playCard(player, card, targetIndex, cardIndex = player.hand.findIndex((
   if (card.id === "momentum") resolveMomentum(player, state.players[targetIndex]);
   if (card.equip) equipCard(player, card);
 
-  if (player.role.id === "doncic" && card.tactic) {
+  if (player.role.id === "doncic" && card.tactic && !player.tacticBonusUsed) {
+    player.tacticBonusUsed = true;
     drawCards(player, 1);
     log("东契奇发动节奏大师。");
   }
@@ -1770,12 +1847,9 @@ function resolveSteal(player, target) {
 
 function resolveFastbreak(player) {
   const targets = state.players.filter((p) => p.alive && p !== player).slice(0, 2);
-  const resolveNext = (index = 0) => {
+  const step = (index) => {
     if (index >= targets.length || state.gameOver || !player.alive) return;
-    if (state.pendingResponse || state.discardRequest) {
-      window.setTimeout(() => resolveNext(index), 300);
-      return;
-    }
+    if (currentPlayer() !== player || state.phase !== "play") return;
     const target = targets[index];
     if (target?.alive) {
       log(`快攻冲向 ${target.role.cn}。`);
@@ -1786,9 +1860,11 @@ function resolveFastbreak(player) {
       }
       render();
     }
-    window.setTimeout(() => resolveNext(index + 1), 320);
+    const cont = () => step(index + 1);
+    if (state.pendingResponse || state.discardRequest) enqueueChain(cont);
+    else cont();
   };
-  resolveNext();
+  step(0);
 }
 
 function resolveDouble(player, target) {
@@ -1890,11 +1966,17 @@ function startResponse(config) {
     const allowedNames = config.allowed.map((id) => cardCatalog[id].name).join(" / ");
     showTip(`手上没有 ${allowedNames}，快速跳过响应。`);
     clearAutoEnd();
+    // 先占住响应位，避免 AI 在结算完成前继续出牌，并和稍后的强制结束回合叠在一起。
+    state.pendingResponse = { ...config, used: 0, autoPass: true };
+    render();
     autoEndTimer = window.setTimeout(() => {
+      const pending = state.pendingResponse;
+      if (!pending?.autoPass || pending.playerIndex !== config.playerIndex) return;
+      state.pendingResponse = null;
       config.onFail?.();
       checkWin();
-      if (!state.gameOver && !state.discardRequest && currentPlayer()?.ai) window.setTimeout(nextTurn, aiSpeedProfile().responseDelay);
       render();
+      flushChain();
     }, 650);
     return;
   }
@@ -1908,7 +1990,7 @@ function startResponse(config) {
 
 function respondWithCard(cardId, explicitIndex = null) {
   const pending = state.pendingResponse;
-  if (!pending || pending.playerIndex !== localPlayerIndex() || !pending.allowed.includes(cardId)) return;
+  if (!pending || pending.autoPass || pending.playerIndex !== localPlayerIndex() || !pending.allowed.includes(cardId)) return;
   if (!isAuthoritativeClient()) {
     sendLanAction({ kind: "response", cardId, explicitIndex });
     showTip("已提交响应。", 1200);
@@ -1919,7 +2001,7 @@ function respondWithCard(cardId, explicitIndex = null) {
 
 function respondWithCardForPlayer(playerIndex, cardId, explicitIndex = null) {
   const pending = state.pendingResponse;
-  if (!pending || pending.playerIndex !== playerIndex || !pending.allowed.includes(cardId)) return;
+  if (!pending || pending.autoPass || pending.playerIndex !== playerIndex || !pending.allowed.includes(cardId)) return;
   const player = state.players[pending.playerIndex];
   const requestedIndex = explicitIndex === null || explicitIndex === undefined ? -1 : Number(explicitIndex);
   const index = player.hand[requestedIndex]?.id === cardId ? requestedIndex : findCardIndex(player, [cardId]);
@@ -1938,7 +2020,9 @@ function respondWithCardForPlayer(playerIndex, cardId, explicitIndex = null) {
     state.pendingResponse = null;
     onSuccess?.();
     checkWin();
-    if (!state.gameOver && !state.discardRequest && currentPlayer()?.ai) window.setTimeout(nextTurn, aiSpeedProfile().responseDelay);
+    render();
+    flushChain();
+    return;
   } else if (findCardIndex(player, pending.allowed) === -1) {
     showTip(`${player.role.cn} 没有剩余响应牌，自动不响应。`);
     window.setTimeout(() => passResponseForPlayer(playerIndex), 320);
@@ -1959,7 +2043,7 @@ function passResponse() {
 
 function passResponseForPlayer(playerIndex) {
   const pending = state.pendingResponse;
-  if (!pending || pending.playerIndex !== playerIndex) return;
+  if (!pending || pending.playerIndex !== playerIndex || pending.autoPass) return;
   clearCountdown();
   clearAutoEnd();
   const onFail = pending.onFail;
@@ -1967,8 +2051,8 @@ function passResponseForPlayer(playerIndex) {
   log(`${state.players[pending.playerIndex].role.cn} 放弃响应。`);
   onFail?.();
   checkWin();
-  if (!state.gameOver && !state.discardRequest && currentPlayer()?.ai) window.setTimeout(nextTurn, aiSpeedProfile().responseDelay);
   render();
+  flushChain();
 }
 
 function heal(player, amount) {
@@ -1983,13 +2067,13 @@ function heal(player, amount) {
 function damage(source, target, amount, reason) {
   if (!target?.alive) return;
   let finalAmount = amount;
-  if (target.equipment.sleeve && !target.sleeveUsed) {
+  if (!state.suddenDeath && target.equipment.sleeve && !target.sleeveUsed) {
     target.sleeveUsed = true;
     finalAmount = Math.max(0, finalAmount - 1);
     log(`${target.role.cn} 的护臂吸收了伤害。`);
     playSound("sleeve");
   }
-  if (target.role.id === "duncan" && !target.fundamentalsUsed) {
+  if (!state.suddenDeath && target.role.id === "duncan" && !target.fundamentalsUsed) {
     target.fundamentalsUsed = true;
     finalAmount = Math.max(0, finalAmount - 1);
     log("邓肯发动基本功，减少 1 点伤害。");
@@ -1997,7 +2081,8 @@ function damage(source, target, amount, reason) {
   if (finalAmount <= 0) return;
   target.hp -= finalAmount;
   log(`${reason}！${target.role.cn} 失去 ${finalAmount} 点体能。`);
-  addScore(source, reason.includes("三分") ? 3 : 2);
+  const secondKobeShot = source?.role?.id === "kobe" && source.extraOffenseUsed && (reason === "突破上篮" || reason === "三分命中");
+  if (!secondKobeShot) addScore(source, reason.includes("三分") ? 3 : 2);
   flashSeat(target);
   playSound(reason.includes("三分") ? "swish" : "hit");
   if (target.role.id === "brunson" && target.hp === 1 && !target.lowHpTriggered) {
@@ -2008,7 +2093,19 @@ function damage(source, target, amount, reason) {
   if (target.hp <= 0) attemptRescue(source, target);
 }
 
+function sameCamp(a, b) {
+  if (!a || !b || a === b) return false;
+  const allies = a.identity === "核心" || a.identity === "队友";
+  const otherAllies = b.identity === "核心" || b.identity === "队友";
+  if (allies && otherAllies) return true;
+  return a.identity === "挑战者" && b.identity === "挑战者";
+}
+
 function attemptRescue(source, target) {
+  if (state.suddenDeath) {
+    eliminate(source, target);
+    return;
+  }
   if (target.equipment.ring) {
     state.discard.push(target.equipment.ring);
     delete target.equipment.ring;
@@ -2017,11 +2114,21 @@ function attemptRescue(source, target) {
     playSound("ring");
     return;
   }
-  const savior = state.players.find((player) => player.alive && findCardIndex(player, ["timeout"]) !== -1);
+  const selfTimeout = findCardIndex(target, ["timeout"]);
+  if (selfTimeout !== -1) {
+    discardCard(target, selfTimeout);
+    target.hp = 1;
+    log(`${target.role.cn} 用暂停自救，回到 1 点体能。`);
+    playSound("whistle");
+    return;
+  }
+  // 只允许同阵营自动交暂停。原先会按座位抢走第一张暂停，对手甚至你自己的保命牌都会被拿去救别人。
+  const savior = state.players.find((player) => player.alive && sameCamp(player, target) && findCardIndex(player, ["timeout"]) !== -1);
   if (savior) {
     discardCard(savior, findCardIndex(savior, ["timeout"]));
     target.hp = 1;
     log(`${savior.role.cn} 请求暂停，救回 ${target.role.cn}。`);
+    if (isLocalPlayer(savior)) showTip(`你的暂停已用于救回 ${target.role.cn}。`);
     playSound("whistle");
     return;
   }
@@ -2033,7 +2140,7 @@ function eliminate(source, target) {
   target.revealed = true;
   target.hp = 0;
   target.hand.splice(0).forEach((card) => state.discard.push(card));
-  Object.keys(target.equipment).forEach((key) => delete target.equipment[key]);
+  discardAllEquipment(target);
   log(`${target.role.cn} 离场，身份是 ${target.identity}。`);
   playSound("death");
   if (target.identity === "挑战者" && source?.alive) {
@@ -2042,9 +2149,18 @@ function eliminate(source, target) {
   }
   if (source?.identity === "核心" && target.identity === "队友") {
     source.hand.splice(0).forEach((card) => state.discard.push(card));
-    Object.keys(source.equipment).forEach((key) => delete source.equipment[key]);
+    discardAllEquipment(source);
     log("核心误伤队友，清空手牌和装备。");
   }
+  checkWin();
+}
+
+function discardAllEquipment(player) {
+  Object.keys(player.equipment).forEach((key) => {
+    const card = player.equipment[key];
+    if (card) state.discard.push(card);
+    delete player.equipment[key];
+  });
 }
 
 function checkWin() {
@@ -2068,6 +2184,10 @@ function finishGame(message) {
   state.phase = "gameover";
   state.finishMessage = message;
   state.tipoffText = "";
+  state.pendingResponse = null;
+  state.discardRequest = null;
+  chainQueue = [];
+  turnSerial += 1;
   clearCountdown();
   clearAutoEnd();
   log(`终场：${message}`);
@@ -2098,7 +2218,7 @@ function discardEquipment(player, key) {
   return card;
 }
 
-function discardableItems(player) {
+function discardableItems(player, includeEquipment = false) {
   if (!player) return [];
   const hand = player.hand.map((card) => ({
     key: `hand:${card.uid}`,
@@ -2106,7 +2226,7 @@ function discardableItems(player) {
     type: "hand",
     uid: card.uid,
   }));
-  if (!player.ai) return hand;
+  if (!includeEquipment && !player.ai) return hand;
   const equipment = Object.entries(player.equipment).map(([slot, card]) => ({
     key: `equip:${slot}`,
     label: `装备 · ${card.name}`,
@@ -2121,12 +2241,19 @@ function discardFrom(player, count, reason, onDone = null) {
     onDone?.(0);
     return 0;
   }
-  if (!discardableItems(player).length) {
+  if (!discardableItems(player, true).length) {
     onDone?.(0);
     return 0;
   }
   if (!player.ai) {
-    startDiscardRequest({ player, count, reason, onDone, resumeAi: Boolean(currentPlayer()?.ai) });
+    startDiscardRequest({
+      player,
+      count,
+      reason,
+      onDone,
+      resumeAi: Boolean(currentPlayer()?.ai),
+      includeEquipment: true,
+    });
     return null;
   }
   let discarded = 0;
@@ -2137,11 +2264,11 @@ function discardFrom(player, count, reason, onDone = null) {
   return discarded;
 }
 
-function startDiscardRequest({ player, count, reason, onDone, resumeAi = false }) {
+function startDiscardRequest({ player, count, reason, onDone, resumeAi = false, includeEquipment = false }) {
   clearCountdown();
   clearAutoEnd();
   const playerIndex = state.players.indexOf(player);
-  const available = discardableItems(player).length;
+  const available = discardableItems(player, includeEquipment).length;
   if (playerIndex < 0 || !available) {
     onDone?.(0);
     return;
@@ -2154,6 +2281,7 @@ function startDiscardRequest({ player, count, reason, onDone, resumeAi = false }
     selected: [],
     onDone,
     resumeAi,
+    includeEquipment,
   };
   state.awaitingTarget = null;
   state.selectedCardIndex = null;
@@ -2187,7 +2315,7 @@ function autoDiscardRequest() {
   const req = state.discardRequest;
   if (!req) return;
   const player = state.players[req.playerIndex];
-  const choices = discardableItems(player);
+  const choices = discardableItems(player, req.includeEquipment);
   const needed = discardRequestNeeded(req);
   const handKeys = player.hand.slice(Math.max(0, player.hand.length - needed)).map((card) => `hand:${card.uid}`);
   const fallbackKeys = choices.map((item) => item.key).filter((key) => !handKeys.includes(key));
@@ -2230,10 +2358,8 @@ function confirmDiscardRequest(force = false) {
   const resumeAi = req.resumeAi;
   state.discardRequest = null;
   onDone?.(discarded);
-  if (resumeAi && !state.gameOver && currentPlayer()?.ai && !state.pendingResponse) {
-    window.setTimeout(nextTurn, aiSpeedProfile().responseDelay);
-  }
   render();
+  if (!state.gameOver && !state.pendingResponse && !state.discardRequest && (resumeAi || chainQueue.length)) flushChain();
 }
 
 function discardRandom(player) {
@@ -2290,9 +2416,31 @@ function runAiAction(player, actionCount, maxActions) {
 
 function scheduleAiEndTurn() {
   clearAiAction();
+  const serial = turnSerial;
   aiActionTimer = window.setTimeout(() => {
-    if (!state.gameOver && !state.pendingResponse && !state.discardRequest && currentPlayer()?.ai) nextTurn();
+    if (serial !== turnSerial || chainQueue.length) return;
+    if (!state.gameOver && !state.pendingResponse && !state.discardRequest && currentPlayer()?.ai && state.phase === "play") nextTurn();
   }, aiSpeedProfile().nextTurnDelay);
+}
+
+function enqueueChain(fn) {
+  chainQueue.push(fn);
+}
+
+function flushChain() {
+  if (state.gameOver || state.pendingResponse || state.discardRequest) return;
+  while (chainQueue.length && !state.gameOver && !state.pendingResponse && !state.discardRequest) {
+    const next = chainQueue.shift();
+    next();
+  }
+  if (state.gameOver || state.pendingResponse || state.discardRequest || chainQueue.length) return;
+  if (state.phase !== "play" || !currentPlayer()?.ai) return;
+  const serial = turnSerial;
+  window.setTimeout(() => {
+    if (serial !== turnSerial || chainQueue.length) return;
+    if (state.gameOver || state.pendingResponse || state.discardRequest) return;
+    if (state.phase === "play" && currentPlayer()?.ai) nextTurn();
+  }, aiSpeedProfile().responseDelay);
 }
 
 function aiSpeedProfile() {
@@ -2528,6 +2676,8 @@ let countdownTimer = null;
 let autoEndTimer = null;
 let aiActionTimer = null;
 let coachTipTimer = null;
+let chainQueue = [];
+let turnSerial = 0;
 
 function startCountdown(seconds, label, onExpire) {
   clearCountdown();
@@ -2629,14 +2779,21 @@ function soundForCard(card) {
 
 function pendingResponseSnapshot() {
   if (!state.pendingResponse) return null;
-  const { type, sourceIndex, playerIndex, card, allowed, need, used } = state.pendingResponse;
-  return { type, sourceIndex, playerIndex, card, allowed, need, used };
+  const { type, sourceIndex, playerIndex, card, allowed, need, used, autoPass } = state.pendingResponse;
+  return { type, sourceIndex, playerIndex, card, allowed, need, used, autoPass: Boolean(autoPass) };
 }
 
 function discardRequestSnapshot() {
   if (!state.discardRequest) return null;
-  const { playerIndex, count, reason, selected, resumeAi } = state.discardRequest;
-  return { playerIndex, count, reason, selected: [...(selected || [])], resumeAi: Boolean(resumeAi) };
+  const { playerIndex, count, reason, selected, resumeAi, includeEquipment } = state.discardRequest;
+  return {
+    playerIndex,
+    count,
+    reason,
+    selected: [...(selected || [])],
+    resumeAi: Boolean(resumeAi),
+    includeEquipment: Boolean(includeEquipment),
+  };
 }
 
 function gameSnapshot() {
@@ -2745,12 +2902,12 @@ function applyHostAction(from, action = {}) {
     return;
   }
   if (action.kind === "discard-selection" && state.discardRequest?.playerIndex === playerIndex) {
-    const valid = new Set(discardableItems(player).map((item) => item.key));
+    const valid = new Set(discardableItems(player, state.discardRequest.includeEquipment).map((item) => item.key));
     state.discardRequest.selected = (action.selected || []).filter((key) => valid.has(key)).slice(0, state.discardRequest.count);
     return render();
   }
   if (action.kind === "discard-confirm" && state.discardRequest?.playerIndex === playerIndex) {
-    const valid = new Set(discardableItems(player).map((item) => item.key));
+    const valid = new Set(discardableItems(player, state.discardRequest.includeEquipment).map((item) => item.key));
     state.discardRequest.selected = (action.selected || state.discardRequest.selected || []).filter((key) => valid.has(key)).slice(0, state.discardRequest.count);
     return confirmDiscardRequest(true);
   }
@@ -3079,6 +3236,8 @@ qs("#startBtn").addEventListener("click", () => {
   if (!startLanRoomGame()) initGame();
 });
 function returnToHome() {
+  turnSerial += 1;
+  chainQueue = [];
   clearCountdown();
   clearAutoEnd();
   stopMusic();
@@ -3546,6 +3705,7 @@ if (bootCardPack) {
 
 buildRoster();
 renderSettings();
+renderLanPanel();
 render();
 loadCardPacks();
 
