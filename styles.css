@@ -1415,6 +1415,24 @@ button:disabled {
   transform: translateY(-10px);
 }
 
+.equip-discard {
+  flex: 0 0 116px;
+  height: 186px;
+  border-radius: 16px;
+  border: 2px dashed rgba(255, 208, 90, 0.85);
+  background: rgba(0, 0, 0, 0.38);
+  color: white;
+  font: inherit;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.equip-discard.discard-selected {
+  border-color: var(--red);
+  background: rgba(255, 90, 79, 0.28);
+  transform: translateY(-10px);
+}
+
 .action-card.selected-card {
   border-width: var(--selected-card-border-width);
   border-style: solid;
