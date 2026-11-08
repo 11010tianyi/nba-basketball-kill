@@ -6,8 +6,18 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check app.js && node --check server.mjs && node --check scripts/generate-card-packs-manifest.mjs && node --check scripts/playthrough-check.mjs",
+    "check": "node --check app.js && node --check server.mjs && node --check scripts/generate-card-packs-manifest.mjs && node --check scripts/playthrough-check.mjs && node --check scripts/prepare-mobile-web.mjs",
     "check:play": "node scripts/playthrough-check.mjs",
-    "cards:manifest": "node scripts/generate-card-packs-manifest.mjs"
+    "cards:manifest": "node scripts/generate-card-packs-manifest.mjs",
+    "mobile:web": "node scripts/prepare-mobile-web.mjs",
+    "android:sync": "node scripts/prepare-mobile-web.mjs && cap sync android",
+    "android:apk": "node scripts/prepare-mobile-web.mjs && cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.6.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0"
   }
 }

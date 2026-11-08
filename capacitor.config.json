@@ -1,0 +1,15 @@
+{
+  "appId": "com.tianyi.nbabasketballkill",
+  "appName": "篮球杀",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css",
+      "style": "DARK",
+      "initialViewportFitValueHint": "cover"
+    }
+  }
+}

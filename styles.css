@@ -2506,3 +2506,47 @@ button:disabled {
     justify-content: flex-end;
   }
 }
+
+/* Packaged Android WebView only. The class is added to the copied index.html
+   in www/, not to the Pages/LAN page, so these rules do not change the web layout. */
+html.native-shell {
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  --safe-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
+  --safe-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+}
+
+html.native-shell .game-shell {
+  padding-top: max(12px, var(--safe-top));
+  padding-right: max(12px, var(--safe-right));
+  padding-bottom: max(12px, var(--safe-bottom));
+  padding-left: max(12px, var(--safe-left));
+}
+
+html.native-shell .modal {
+  padding-top: max(22px, var(--safe-top));
+  padding-right: max(22px, var(--safe-right));
+  padding-bottom: max(22px, var(--safe-bottom));
+  padding-left: max(22px, var(--safe-left));
+}
+
+html.native-shell .setup-options {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html.native-shell .turn-actions button,
+html.native-shell .modal-footer button,
+html.native-shell .response-panel button,
+html.native-shell .end-actions button {
+  min-height: 44px;
+}
+
+html.native-shell button,
+html.native-shell .roster-card,
+html.native-shell .action-card {
+  touch-action: manipulation;
+}
+
+html.native-shell .hand {
+  touch-action: pan-x;
+}
