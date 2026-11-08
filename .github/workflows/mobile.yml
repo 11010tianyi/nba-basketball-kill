@@ -110,7 +110,40 @@ jobs:
 
       - name: Build APK
         working-directory: android
-        run: ./gradlew assembleDebug
+        run: |
+          set -euo pipefail
+          # GitHub's egress sometimes 504s or stalls while fetching the Gradle
+          # distribution. Retry only that download. Compile and signing
+          # failures exit immediately.
+          log="${RUNNER_TEMP:-/tmp}/gradle-assemble.log"
+          max_attempts=3
+          for attempt in 1 2 3; do
+            set +e
+            ./gradlew assembleDebug 2>&1 | tee "$log"
+            code="${PIPESTATUS[0]}"
+            set -e
+            if [ "$code" -eq 0 ]; then
+              exit 0
+            fi
+            download_failure=0
+            if grep -Eq 'Could not install Gradle distribution|Downloading from https://services\.gradle\.org/distributions/.*failed|SocketTimeoutException|Read timed out|ConnectException|UnknownHostException|Server returned HTTP response code: (408|429|500|502|503|504)' "$log"; then
+              download_failure=1
+            fi
+            if grep -Eq 'Compilation failed|Execution failed for task '"'"':app:compile|Execution failed for task '"'"':app:packageDebug|Execution failed for task '"'"':app:validateSigningDebug|Keystore was tampered|Failed to read key' "$log"; then
+              download_failure=0
+            fi
+            if [ "$download_failure" -eq 1 ] && [ "$attempt" -lt "$max_attempts" ]; then
+              echo "Gradle distribution download failed on attempt ${attempt}/${max_attempts}. Waiting 15s before retrying."
+              sleep 15
+              continue
+            fi
+            if [ "$download_failure" -eq 1 ]; then
+              echo "::error::Gradle distribution download failed after ${max_attempts} attempts."
+            else
+              echo "::error::assembleDebug failed for a compile or signing reason. Not retrying."
+            fi
+            exit "$code"
+          done
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
