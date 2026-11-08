@@ -12,3 +12,8 @@ coverage/
 assets/cards/manifest.json
 assets/cards/*.bak/
 assets/cards/*-bak[0-9]*/
+www/
+*.jks
+*.keystore
+**/*.jks
+**/*.keystore

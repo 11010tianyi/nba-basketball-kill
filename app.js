@@ -671,6 +671,32 @@ const roleQuickChat = {
 };
 const qs = (selector) => document.querySelector(selector);
 const qsa = (selector) => Array.from(document.querySelectorAll(selector));
+
+function isNativeShell() {
+  if (document.documentElement.classList.contains("native-shell")) return true;
+  const cap = window.Capacitor;
+  if (!cap) return false;
+  try {
+    if (typeof cap.isNativePlatform === "function" && cap.isNativePlatform()) return true;
+    if (typeof cap.getPlatform === "function" && cap.getPlatform() !== "web") return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function configureNativeShell() {
+  if (!isNativeShell()) return;
+  document.documentElement.classList.add("native-shell");
+  state.playMode = "solo";
+  localStorage.setItem("nbaKillPlayMode", "solo");
+  const select = qs("#playModeSelect");
+  select?.querySelector('option[value="lan"]')?.remove();
+  if (select) select.value = "solo";
+  select?.closest("label")?.setAttribute("hidden", "");
+  qs("#lanPanel")?.classList.remove("active");
+}
+
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
   "&": "&amp;",
   "<": "&lt;",
@@ -3395,6 +3421,13 @@ qs("#playerCountSelect").addEventListener("change", (event) => {
   syncRoomPatch({ playerCount: state.playerCount });
 });
 qs("#playModeSelect").addEventListener("change", (event) => {
+  if (isNativeShell()) {
+    event.target.value = "solo";
+    state.playMode = "solo";
+    localStorage.setItem("nbaKillPlayMode", "solo");
+    renderLanPanel();
+    return;
+  }
   state.playMode = event.target.value;
   localStorage.setItem("nbaKillPlayMode", state.playMode);
   renderLanPanel();
@@ -3521,6 +3554,7 @@ function roomUrl() {
 }
 
 function connectRoomSocket() {
+  if (isNativeShell()) return null;
   if (roomSocket && roomSocket.readyState <= 1) return roomSocket;
   roomSocket = new WebSocket(roomUrl());
   roomSocket.addEventListener("message", (event) => {
@@ -3605,7 +3639,9 @@ function roomStatusText(room, alreadyJoined = false) {
 }
 
 function sendRoom(message) {
+  if (isNativeShell()) return;
   const socket = connectRoomSocket();
+  if (!socket) return;
   const payload = () => socket.send(JSON.stringify({ clientId: state.clientId, ...message }));
   if (socket.readyState === WebSocket.OPEN) payload();
   else socket.addEventListener("open", payload, { once: true });
@@ -3655,6 +3691,7 @@ function requestLanStart() {
 }
 
 function startLanRoomGame() {
+  if (isNativeShell()) return false;
   if (state.playMode !== "lan") return false;
   if (!state.roomCode) {
     createLanRoom({ autoStart: true });
@@ -3703,6 +3740,7 @@ if (bootCardPack) {
   localStorage.setItem("nbaKillCardPack", state.cardPack);
 }
 
+configureNativeShell();
 buildRoster();
 renderSettings();
 renderLanPanel();

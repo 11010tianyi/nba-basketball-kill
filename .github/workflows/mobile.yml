@@ -1,0 +1,124 @@
+name: Build Android debug APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "android/**"
+      - "assets/**"
+      - "index.html"
+      - "app.js"
+      - "styles.css"
+      - "package.json"
+      - "package-lock.json"
+      - "capacitor.config.json"
+      - "scripts/prepare-mobile-web.mjs"
+      - "scripts/generate-card-packs-manifest.mjs"
+      - ".github/workflows/mobile.yml"
+      - ".github/scripts/publish-android-debug-apk.sh"
+
+# contents: write lets GITHUB_TOKEN create the release tag and upload the APK.
+# actions: write keeps the debug APK Actions artifact upload working when
+# permissions are listed explicitly. The debug signing key is the repository
+# secret ANDROID_DEBUG_KEYSTORE_BASE64, not a GITHUB_TOKEN permission. This
+# workflow does not commit version bumps, so a release cannot retrigger itself.
+permissions:
+  contents: write
+  actions: write
+
+# Queue builds so two runs cannot claim the same patch tag.
+concurrency:
+  group: android-debug-release
+  cancel-in-progress: false
+
+jobs:
+  android-debug-apk:
+    name: Android debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          # v3 defaulted to the removed SDK package "tools". On current
+          # GitHub-hosted runners that makes cmdline-tools exit 1 with
+          # "Failed to find package 'tools'". v4 installs cmdline-tools
+          # itself and only requests platform-tools; it also skips "tools"
+          # if a caller still asks for it.
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+
+      - name: Install Android packages
+        run: |
+          set -euo pipefail
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate JavaScript
+        run: npm run check
+
+      - name: Sync Android
+        run: npm run android:sync
+
+      # AGP 8 signs assembleDebug with ~/.android/debug.keystore and creates
+      # that file if it is absent. Restore the persisted keystore before Gradle
+      # so a fresh runner cannot mint a one-off debug key.
+      - name: Restore persistent debug keystore
+        env:
+          ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          keystore_path="${HOME}/.android/debug.keystore"
+          if [ -z "${ANDROID_DEBUG_KEYSTORE_BASE64}" ]; then
+            echo "::error::ANDROID_DEBUG_KEYSTORE_BASE64 is missing or empty. Refusing to generate a new debug keystore; a fresh key would make this APK fail to update over the previous CI build (INSTALL_FAILED_UPDATE_INCOMPATIBLE)."
+            exit 1
+          fi
+          mkdir -p "${HOME}/.android"
+          if ! printf '%s' "${ANDROID_DEBUG_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"; then
+            rm -f "${keystore_path}"
+            echo "::error::ANDROID_DEBUG_KEYSTORE_BASE64 is not valid base64. Refusing to continue."
+            exit 1
+          fi
+          chmod 600 "${keystore_path}"
+          if [ ! -s "${keystore_path}" ]; then
+            rm -f "${keystore_path}"
+            echo "::error::ANDROID_DEBUG_KEYSTORE_BASE64 decoded to an empty file. Refusing to continue."
+            exit 1
+          fi
+          if ! keytool -list -keystore "${keystore_path}" -storepass android -alias androiddebugkey >/dev/null; then
+            rm -f "${keystore_path}"
+            echo "::error::ANDROID_DEBUG_KEYSTORE_BASE64 is not a usable Android debug keystore. Expected store password android and alias androiddebugkey. Refusing to let Gradle create a replacement."
+            exit 1
+          fi
+
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nba-basketball-kill-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/publish-android-debug-apk.sh android/app/build/outputs/apk/debug/app-debug.apk

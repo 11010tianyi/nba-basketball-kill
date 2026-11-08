@@ -39,6 +39,51 @@ https://11010tianyi.github.io/nba-basketball-kill/
 
 Pages 静态版适合体验单机 AI 局、规则、角色、卡牌和界面适配。局域网房间依赖 `server.mjs` 的 WebSocket 服务，仍需在本机运行 `npm start` 后通过终端输出的 LAN 地址访问。
 
+## Android 安装包
+
+项目用 Capacitor 把现有静态页面包进 Android WebView，没有额外的打包器。`capacitor.config.json` 的 `webDir` 是 `www/`：`npm run mobile:web` 会把 `index.html`、`app.js`、`styles.css` 和 `assets/` 复制进去，并带上卡牌背景清单。页面里的相对路径保持不变，所以单机 AI、本地音效和卡牌图在安装包里都能离线打开，不依赖 GitHub Pages，也不需要 `npm start`。
+
+- 应用名：`篮球杀`
+- 包名：`com.tianyi.nbabasketballkill`
+- 类型：debug APK，不是上架用的正式签名
+
+安装包里的开局页只保留单机 AI。局域网房间仍然留在网页和 `npm start` 里；安装包没有内置房间服务器，如果还显示创建/加入房间，点下去只会失败。真人现场照片仍会向 Wikimedia 要图，离线时会回退到拟人卡，不影响开局。
+
+可安装的 debug APK 会发到 GitHub Releases，文件名是 `nba-basketball-kill-vX.Y.Z-debug.apk`（第一次是 `nba-basketball-kill-v1.0.0-debug.apk`）：
+
+https://github.com/11010tianyi/nba-basketball-kill/releases
+
+`Build Android debug APK` workflow 在 `main` 上改到游戏或 Android 配置时自动构建，也可以手动 `workflow_dispatch`。它用 `GITHUB_TOKEN` 建一个新的 Release，这是长期下载地址。同一次构建还会上传名为 `nba-basketball-kill-debug-apk` 的 Actions artifact，那份文件大约 90 天后过期。只改文档不会触发这个 workflow，GitHub Pages 的部署也不受影响。
+
+版本标签在发布时根据已有 git tag 计算，workflow 不会把版本号提交回仓库：
+
+- 还没有任何 `vMAJOR.MINOR.PATCH` tag 时，第一次发布是 `v1.0.0`。`package.json` 的版本号不参与计算。
+- 之后每次成功构建都在最高的 semver tag 上把 patch 加一，例如 `v1.0.1`、`v1.0.2`。
+- 如果算出来的 tag 或同名 Release 已经存在（例如重跑同一次构建），这次任务不会失败，而是继续取下一个还没用过的 patch。
+
+签名用仓库 secret `ANDROID_DEBUG_KEYSTORE_BASE64`。workflow 在 `assembleDebug` 之前把它解码到 runner 的 `$HOME/.android/debug.keystore`。secret 缺失、为空、不是合法 base64，或不是 Android 默认 debug 密钥（store 密码 `android`、别名 `androiddebugkey`）时，任务会直接失败，不会在 runner 上新生成一把钥匙。仓库里不要提交 keystore 或密码。
+
+### 本机打包
+
+需要 JDK 21 和 Android SDK 36。本机如果还没有 `~/.android/debug.keystore`，Gradle 会为这次本机构建生成一把，它只留在你的用户目录里，不要提交。CI 不会这样做。
+
+```bash
+npm install
+npm run android:apk
+```
+
+APK 输出位置：
+
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+只同步 Web 资源、不打包时：
+
+```bash
+npm run android:sync
+```
+
 ## 当前内容
 
 - 球星角色：20 名，包括现役、历史级和中国球员
@@ -322,7 +367,11 @@ http://127.0.0.1:4173/?autostart=1&cardPack=cartoon
 - `server.mjs`：本地静态服务和局域网房间 WebSocket 服务
 - `assets/audio/`：真实球场 MP3 音效
 - `assets/cards/`：可选卡牌背景包目录，按子文件夹自动识别
-- `scripts/generate-card-packs-manifest.mjs`：为 GitHub Pages 生成静态卡牌背景包清单
+- `scripts/generate-card-packs-manifest.mjs`：为 GitHub Pages 和 Android 安装包生成静态卡牌背景包清单
+- `scripts/prepare-mobile-web.mjs`：把静态游戏复制到 `www/`，供 Capacitor 打包
+- `capacitor.config.json`：Android 包名、应用名和 `webDir`
+- `android/`：Capacitor Android 工程
+- `.github/workflows/mobile.yml`：构建 debug APK 并发布 GitHub Release
 - `NOTES.md`：原型历史说明
 - `NBA篮球杀_全网高相关性项目清单.md`：同类身份卡牌、数字桌游、体育卡牌与可玩性参考清单
 - `卡牌视觉设计语言及规范.md`：卡牌背景、GPT-image-2 生成提示词、音效与聊天文案规范
@@ -350,6 +399,7 @@ http://127.0.0.1:4173/?autostart=1&cardPack=cartoon
 npm start
 npm run check
 npm run cards:manifest
+npm run android:apk
 ```
 
 如果 `4173` 被占用，可以换端口：
