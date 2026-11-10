@@ -26,10 +26,12 @@ let marked = html.replace(
   "<html lang=\"zh-CN\">",
   "<html lang=\"zh-CN\" class=\"native-shell\">",
 );
-marked = marked.replace(
-  'content="width=device-width, initial-scale=1.0"',
-  'content="width=device-width, initial-scale=1.0, viewport-fit=cover"',
-);
+if (!marked.includes("viewport-fit=cover")) {
+  marked = marked.replace(
+    'content="width=device-width, initial-scale=1.0"',
+    'content="width=device-width, initial-scale=1.0, viewport-fit=cover"',
+  );
+}
 if (!marked.includes("class=\"native-shell\"") || !marked.includes("viewport-fit=cover")) {
   console.error("Could not mark the packaged index.html as a native shell.");
   process.exit(1);
