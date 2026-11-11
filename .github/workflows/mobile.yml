@@ -17,6 +17,7 @@ on:
       - "scripts/generate-card-packs-manifest.mjs"
       - ".github/workflows/mobile.yml"
       - ".github/scripts/publish-android-debug-apk.sh"
+      - ".github/scripts/verify-android-debug-cert.sh"
 
 # contents: write lets GITHUB_TOKEN create the release tag and upload the APK.
 # actions: write keeps the debug APK Actions artifact upload working when
@@ -77,9 +78,10 @@ jobs:
       - name: Sync Android
         run: npm run android:sync
 
-      # AGP 8 signs assembleDebug with ~/.android/debug.keystore and creates
-      # that file if it is absent. Restore the persisted keystore before Gradle
-      # so a fresh runner cannot mint a one-off debug key.
+      # Restore the persisted keystore before Gradle. AGP's default debug
+      # keystore is not always ~/.android/debug.keystore: if XDG_CONFIG_HOME
+      # (or ANDROID_SDK_HOME) points somewhere else, validateSigningDebug
+      # creates a new key there and the APK cannot update the previous install.
       - name: Restore persistent debug keystore
         env:
           ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
@@ -107,11 +109,60 @@ jobs:
             echo "::error::ANDROID_DEBUG_KEYSTORE_BASE64 is not a usable Android debug keystore. Expected store password android and alias androiddebugkey. Refusing to let Gradle create a replacement."
             exit 1
           fi
+          store_type="$(keytool -list -keystore "${keystore_path}" -storepass android | awk -F': ' '/^Keystore type:/{print $2; exit}')"
+          store_type="${store_type//$'\r'/}"
+          store_type="${store_type#"${store_type%%[![:space:]]*}"}"
+          store_type="${store_type%"${store_type##*[![:space:]]}"}"
+          if [[ "$store_type" != "PKCS12" && "$store_type" != "JKS" ]]; then
+            echo "::error::Refusing to continue. keytool reported keystore type '${store_type}', expected PKCS12 or JKS."
+            exit 1
+          fi
+          cert_sha="$(keytool -list -v -keystore "${keystore_path}" -storepass android -alias androiddebugkey | awk -F': ' '/SHA256:/{print $2; exit}')"
+          cert_sha="${cert_sha//$'\r'/}"
+          if [[ -z "$cert_sha" ]]; then
+            echo "::error::keytool did not print a SHA-256 for alias androiddebugkey."
+            exit 1
+          fi
+          # A later Gradle task must not be able to replace this file with a new key.
+          chmod a-w "${keystore_path}"
+          echo "DEBUG_KEYSTORE_TYPE=${store_type}" >> "$GITHUB_ENV"
+          echo "DEBUG_CERT_SHA256=${cert_sha}" >> "$GITHUB_ENV"
+          echo "Restored debug keystore type: ${store_type}"
+          echo "Restored androiddebugkey SHA-256: ${cert_sha}"
+
+      - name: Resolve release version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(.github/scripts/publish-android-debug-apk.sh --print-version)"
+          if [[ ! "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Could not resolve a vMAJOR.MINOR.PATCH tag (got '${tag}')."
+            exit 1
+          fi
+          major="${BASH_REMATCH[1]}"
+          minor="${BASH_REMATCH[2]}"
+          patch="${BASH_REMATCH[3]}"
+          if ((10#$patch >= 1000)); then
+            echo "::error::Patch ${patch} does not fit versionCode."
+            exit 1
+          fi
+          version_name="${major}.${minor}.${patch}"
+          version_code=$((10#$major * 1000000 + 10#$minor * 1000 + 10#$patch))
+          echo "ANDROID_RELEASE_TAG=${tag}" >> "$GITHUB_ENV"
+          echo "APP_VERSION_NAME=${version_name}" >> "$GITHUB_ENV"
+          echo "APP_VERSION_CODE=${version_code}" >> "$GITHUB_ENV"
+          echo "Release ${tag}: versionName ${version_name}, versionCode ${version_code}"
 
       - name: Build APK
         working-directory: android
         run: |
           set -euo pipefail
+          # Pin AGP's default prefs directory to the restored keystore, and
+          # drop the variables that would send it somewhere else. signingConfigs
+          # in app/build.gradle is what the APK is actually signed with.
+          unset ANDROID_SDK_HOME ANDROID_PREFS_ROOT XDG_CONFIG_HOME || true
+          export ANDROID_USER_HOME="${HOME}/.android"
           # GitHub's egress sometimes 504s or stalls while fetching the Gradle
           # distribution. Retry only that download. Compile and signing
           # failures exit immediately.
@@ -119,7 +170,11 @@ jobs:
           max_attempts=3
           for attempt in 1 2 3; do
             set +e
-            ./gradlew assembleDebug 2>&1 | tee "$log"
+            ./gradlew assembleDebug \
+              -PappVersionName="${APP_VERSION_NAME}" \
+              -PappVersionCode="${APP_VERSION_CODE}" \
+              -PdebugKeystoreType="${DEBUG_KEYSTORE_TYPE}" \
+              2>&1 | tee "$log"
             code="${PIPESTATUS[0]}"
             set -e
             if [ "$code" -eq 0 ]; then
@@ -145,6 +200,17 @@ jobs:
             exit "$code"
           done
 
+      - name: Verify APK certificate and version
+        env:
+          DEBUG_CERT_SHA256: ${{ env.DEBUG_CERT_SHA256 }}
+          APP_VERSION_NAME: ${{ env.APP_VERSION_NAME }}
+          APP_VERSION_CODE: ${{ env.APP_VERSION_CODE }}
+        run: |
+          set -euo pipefail
+          .github/scripts/verify-android-debug-cert.sh \
+            android/app/build/outputs/apk/debug/app-debug.apk \
+            "${HOME}/.android/debug.keystore"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -154,4 +220,5 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          ANDROID_RELEASE_TAG: ${{ env.ANDROID_RELEASE_TAG }}
         run: .github/scripts/publish-android-debug-apk.sh android/app/build/outputs/apk/debug/app-debug.apk
