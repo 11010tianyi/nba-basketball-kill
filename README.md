@@ -55,13 +55,13 @@ https://github.com/11010tianyi/nba-basketball-kill/releases
 
 `Build Android debug APK` workflow 在 `main` 上改到游戏或 Android 配置时自动构建，也可以手动 `workflow_dispatch`。它用 `GITHUB_TOKEN` 建一个新的 Release，这是长期下载地址。同一次构建还会上传名为 `nba-basketball-kill-debug-apk` 的 Actions artifact，那份文件大约 90 天后过期。只改文档不会触发这个 workflow，GitHub Pages 的部署也不受影响。
 
-版本标签在发布时根据已有 git tag 计算，workflow 不会把版本号提交回仓库：
+版本标签在 `assembleDebug` 之前根据已有 git tag 计算，并写入 APK 的 `versionName` / `versionCode`。workflow 不会把版本号提交回仓库：
 
 - 还没有任何 `vMAJOR.MINOR.PATCH` tag 时，第一次发布是 `v1.0.0`。`package.json` 的版本号不参与计算。
-- 之后每次成功构建都在最高的 semver tag 上把 patch 加一，例如 `v1.0.1`、`v1.0.2`。
-- 如果算出来的 tag 或同名 Release 已经存在（例如重跑同一次构建），这次任务不会失败，而是继续取下一个还没用过的 patch。
+- 之后每次成功构建都在最高的 semver tag 上把 patch 加一，例如 `v1.0.3`。`versionName` 是去掉 `v` 的标签，`versionCode` 是 `major * 1000000 + minor * 1000 + patch`。
+- 发布时使用构建前算出的同一个 tag。如果这个 tag 或同名 Release 已经存在，任务失败，不会改发另一个版本号。
 
-签名用仓库 secret `ANDROID_DEBUG_KEYSTORE_BASE64`。workflow 在 `assembleDebug` 之前把它解码到 runner 的 `$HOME/.android/debug.keystore`。secret 缺失、为空、不是合法 base64，或不是 Android 默认 debug 密钥（store 密码 `android`、别名 `androiddebugkey`）时，任务会直接失败，不会在 runner 上新生成一把钥匙。仓库里不要提交 keystore 或密码。
+签名用仓库 secret `ANDROID_DEBUG_KEYSTORE_BASE64`。workflow 在 `assembleDebug` 之前把它解码到 runner 的 `$HOME/.android/debug.keystore`，Gradle 按 keytool 读到的密钥库类型显式使用这个文件和别名 `androiddebugkey`。AGP 默认会在自己的偏好目录里找 debug 密钥；只要 `XDG_CONFIG_HOME` 指向别的已存在目录，它就会另造一把钥匙，已安装的包就会报签名不一致。构建前会记下证书 SHA-256，并把密钥库改成不可写。构建后如果 APK 的 v2 证书 SHA-256 和这个指纹不同，或者密钥库在构建过程中被换掉，任务失败，不会发布。secret 缺失、为空、不是合法 base64，或不是 Android 默认 debug 密钥时，任务也会直接失败。仓库里不要提交 keystore 或密码。手机上如果还装着这次修复之前的安装包，需要先卸载一次；之后的版本可以覆盖安装。
 
 ### 本机打包
 

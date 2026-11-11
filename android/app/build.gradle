@@ -1,5 +1,9 @@
 apply plugin: 'com.android.application'
 
+def ciBuild = System.getenv("CI") == "true"
+// Same path the workflow restores ANDROID_DEBUG_KEYSTORE_BASE64 into.
+def debugKeystore = new File(System.getProperty("user.home"), ".android/debug.keystore")
+
 android {
     namespace = "com.tianyi.nbabasketballkill"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +11,18 @@ android {
         applicationId "com.tianyi.nbabasketballkill"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        if (ciBuild) {
+            def versionNameProp = project.findProperty("appVersionName")
+            def versionCodeProp = project.findProperty("appVersionCode")
+            if (versionNameProp == null || versionCodeProp == null) {
+                throw new GradleException("CI debug builds must pass -PappVersionName and -PappVersionCode so the APK matches the GitHub Release tag.")
+            }
+            versionName versionNameProp.toString()
+            versionCode Integer.parseInt(versionCodeProp.toString())
+        } else {
+            versionCode 1
+            versionName "1.0"
+        }
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,7 +30,31 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // CI must sign with the restored keystore. Leaving debug signing on AGP's
+    // default makes validateSigningDebug create a new debug.keystore whenever
+    // its prefs directory is not ~/.android (for example when XDG_CONFIG_HOME
+    // is set). A non-default alias also stops that auto-create path.
+    if (ciBuild) {
+        def storeTypeProp = project.findProperty("debugKeystoreType")
+        if (storeTypeProp == null || storeTypeProp.toString().trim().isEmpty()) {
+            throw new GradleException("CI debug builds must pass -PdebugKeystoreType from keytool so the restored keystore is loaded as itself.")
+        }
+        signingConfigs {
+            debug {
+                storeFile debugKeystore
+                storePassword "android"
+                keyPassword "android"
+                keyAlias "androiddebugkey"
+                storeType storeTypeProp.toString().trim()
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (ciBuild) {
+                signingConfig signingConfigs.debug
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
@@ -53,9 +91,9 @@ try {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }
 
-// GitHub Actions sets CI=true. assembleDebug must use the restored
-// ~/.android/debug.keystore. Fail before the Android Gradle Plugin can create
-// a one-off debug key on a fresh runner.
+// GitHub Actions sets CI=true. The signingConfigs.debug block above is what
+// actually selects the restored key. This check still refuses to start if
+// that file was never restored.
 def ciDebugKeystore = new File(System.getProperty("user.home"), ".android/debug.keystore")
 gradle.taskGraph.whenReady { taskGraph ->
     def buildsDebug = taskGraph.allTasks.any { task ->
