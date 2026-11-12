@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check app.js && node --check server.mjs && node --check scripts/generate-card-packs-manifest.mjs && node --check scripts/playthrough-check.mjs && node --check scripts/prepare-mobile-web.mjs",
+    "check": "node --check app.js && node --check server.mjs && node --check scripts/generate-card-packs-manifest.mjs && node --check scripts/playthrough-check.mjs && node --check scripts/prepare-mobile-web.mjs && node --check scripts/check-phone-layout.mjs",
+    "check:layout": "node scripts/prepare-mobile-web.mjs && node scripts/check-phone-layout.mjs",
     "check:play": "node scripts/playthrough-check.mjs",
     "cards:manifest": "node scripts/generate-card-packs-manifest.mjs",
     "mobile:web": "node scripts/prepare-mobile-web.mjs",
