@@ -24,6 +24,10 @@
   --selected-card-border-width: 3px;
   --active-player-border-color: #ffd05a;
   --active-player-border-width: 3px;
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  --safe-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
+  --safe-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -31,12 +35,22 @@
   box-sizing: border-box;
 }
 
+html {
+  height: var(--vv-height, 100dvh);
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  height: 100vh;
-  height: 100dvh;
-  min-height: 100vh;
+  height: var(--vv-height, 100dvh);
+  min-height: 0;
   margin: 0;
   overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
   color: var(--ink);
   background:
     radial-gradient(circle at 12% 12%, rgba(255, 208, 90, 0.18), transparent 28%),
@@ -55,6 +69,8 @@ button {
   font-weight: 800;
   cursor: pointer;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   transition: transform 140ms ease, border-color 140ms ease, filter 140ms ease;
 }
 
@@ -76,6 +92,7 @@ button:disabled {
   gap: 16px;
   height: 100vh;
   height: 100dvh;
+  height: var(--vv-height, 100dvh);
   min-height: 0;
   overflow: hidden;
   padding: 16px;
@@ -1689,9 +1706,14 @@ button:disabled {
   z-index: 30;
   display: none;
   place-items: center;
-  padding: 22px;
+  padding:
+    max(22px, var(--safe-top))
+    max(22px, var(--safe-right))
+    max(22px, var(--safe-bottom))
+    max(22px, var(--safe-left));
   background: rgba(0, 0, 0, 0.68);
   backdrop-filter: blur(14px);
+  overscroll-behavior: contain;
 }
 
 .modal.active {
@@ -1702,8 +1724,9 @@ button:disabled {
   display: flex;
   flex-direction: column;
   width: min(1040px, 100%);
-  max-height: min(760px, 92vh);
+  max-height: min(760px, calc(var(--vv-height, 100dvh) - var(--safe-top) - var(--safe-bottom) - 24px));
   overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
   padding: 22px;
@@ -2559,47 +2582,39 @@ html.native-shell .hand {
   touch-action: pan-x;
 }
 
-/* Phone landscape keeps the desktop court: wood floor, court lines, and
-   seats around the open floor. Portrait phones are asked to rotate, and the
-   Android activity is locked to landscape. These rules stay under a short
-   viewport so 1280/1440 and iPad-height screens keep the existing layout. */
-.rotate-gate {
-  display: none;
+/* Touch devices: keep tap targets finger-sized and let the hand scroll sideways
+   without the browser treating the gesture as a page zoom. Mouse layouts keep
+   their compact desktop sizes. */
+@media (pointer: coarse) {
+  .turn-actions button,
+  .response-panel button,
+  .discard-choice,
+  .modal-footer button,
+  .end-actions button,
+  .score-actions .icon-btn {
+    min-height: 44px;
+  }
+
+  #hand,
+  .hand {
+    touch-action: pan-x;
+  }
+
+  button,
+  .roster-card,
+  .action-card,
+  .avatar-option {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
 }
 
-@media (orientation: portrait) and (max-width: 600px) {
-  .rotate-gate {
-    position: fixed;
-    inset: 0;
-    z-index: 80;
-    display: grid;
-    place-items: center;
-    padding:
-      max(24px, env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px))
-      max(20px, env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px))
-      max(24px, env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px))
-      max(20px, env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
-    background:
-      radial-gradient(circle at 50% 42%, rgba(255, 208, 90, 0.16), transparent 26%),
-      linear-gradient(160deg, #1a120c, #101722 58%);
-    text-align: center;
-  }
-
-  .rotate-gate-card {
-    display: grid;
-    gap: 8px;
-    width: min(320px, 100%);
-  }
-
-  .rotate-gate-card strong {
-    font-size: 28px;
-  }
-
-  .rotate-gate-card p {
-    margin: 0;
-    color: var(--muted);
-    line-height: 1.45;
-  }
+/* Phone landscape keeps the desktop court: wood floor, court lines, and
+   seats around the open floor. Portrait phones use the playable grid at the
+   end of this file, so the rotate gate never appears. */
+.rotate-gate {
+  display: none;
+  pointer-events: none;
 }
 
 @media (orientation: landscape) and (max-height: 520px) {
@@ -2607,27 +2622,30 @@ html.native-shell .hand {
   body {
     width: 100%;
     max-width: 100%;
-    height: 100%;
+    height: var(--vv-height, 100dvh);
     overflow: hidden;
+    overscroll-behavior: none;
   }
 
   .game-shell,
   html.native-shell .game-shell {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(148px, 24vw);
+    /* Court column takes leftover width; sidebar stays a compact ~30vw band
+       so the court can be the visual hero without being stretched. */
+    grid-template-columns: minmax(0, 1fr) clamp(230px, 30vw, 320px);
     grid-template-rows: auto minmax(0, 1fr) auto;
-    gap: 6px;
+    gap: 4px;
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    height: 100dvh;
+    height: var(--vv-height, 100dvh);
     min-height: 0;
     overflow: hidden;
     padding:
-      max(6px, env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px))
-      max(6px, env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px))
-      max(6px, env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px))
-      max(6px, env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+      max(4px, env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px))
+      max(4px, env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px))
+      max(4px, env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px))
+      max(4px, env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
   }
 
   .scoreboard,
@@ -2646,8 +2664,13 @@ html.native-shell .hand {
     min-height: 0;
   }
 
+  .scoreboard .score-label,
+  .scoreboard .eyebrow {
+    font-size: 10px;
+  }
+
   .score-team strong {
-    font-size: 22px;
+    font-size: 20px;
   }
 
   .score-center {
@@ -2657,12 +2680,12 @@ html.native-shell .hand {
 
   #clockLabel {
     min-width: 0;
-    font-size: 18px;
+    font-size: 17px;
   }
 
   #phaseLabel {
     min-width: 0;
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .score-actions {
@@ -2674,18 +2697,25 @@ html.native-shell .hand {
   }
 
   .icon-btn {
-    width: 40px;
-    min-height: 40px;
+    width: 44px;
+    min-height: 44px;
   }
 
   .arena {
     grid-column: 1;
     grid-row: 2;
+    /* Fill the court column edge-to-edge instead of contain-fitting the
+       desktop artwork ratio and leaving dark gutters beside it. The court
+       gets slightly wider (and a touch flatter) but the sidebar keeps its
+       compact band and the page never stretches to full width. */
     aspect-ratio: auto;
     width: 100%;
     height: 100%;
+    max-width: 100%;
+    max-height: 100%;
     min-height: 0;
-    max-height: none;
+    justify-self: stretch;
+    align-self: stretch;
   }
 
   .center-circle {
@@ -2743,24 +2773,26 @@ html.native-shell .hand {
     width: 30%;
     max-width: none;
     min-width: 0;
-    height: auto;
+    display: flex;
+    flex-direction: column;
+    height: 32%;
     max-height: 34%;
     min-height: 0;
     margin: 0;
-    padding: 3px;
+    padding: 2px;
     overflow: hidden;
     transform: none;
     translate: none;
   }
 
-  .player-grid .player-seat.top { left: 35%; top: 0; width: 30%; }
-  .player-grid .player-seat.bottom { left: 32%; bottom: 0; width: 36%; max-height: 32%; }
-  .player-grid .player-seat.left { left: 0; top: 34%; width: 30%; max-height: 32%; }
-  .player-grid .player-seat.right { right: 0; top: 34%; width: 30%; max-height: 32%; }
+  .player-grid .player-seat.top { left: 35%; top: 0; width: 30%; height: 32%; }
+  .player-grid .player-seat.bottom { left: 32%; bottom: 6px; width: 36%; height: 32%; max-height: 32%; }
+  .player-grid .player-seat.left { left: 0; top: 34%; width: 30%; height: 32%; max-height: 32%; }
+  .player-grid .player-seat.right { right: 0; top: 34%; width: 30%; height: 32%; max-height: 32%; }
   .player-grid .player-seat.top-left { left: 0; top: 0; }
   .player-grid .player-seat.top-right { right: 0; top: 0; }
-  .player-grid .player-seat.left-low { left: 0; bottom: 0; }
-  .player-grid .player-seat.right-low { right: 0; bottom: 0; }
+  .player-grid .player-seat.left-low { left: 0; bottom: 6px; }
+  .player-grid .player-seat.right-low { right: 0; bottom: 6px; }
 
   .player-grid.count-5 .player-seat,
   .player-grid.count-6 .player-seat,
@@ -2796,10 +2828,14 @@ html.native-shell .hand {
 
   .player-grid .player-seat .player-card,
   .player-grid .player-seat.bottom .player-card {
-    display: block;
+    display: flex;
+    flex-direction: column;
     position: relative;
+    flex: 1 1 auto;
     min-height: 0;
-    height: auto;
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
     padding: 2px 4px 2px 34px;
     overflow: hidden;
   }
@@ -2825,26 +2861,37 @@ html.native-shell .hand {
   }
 
   .player-grid .player-seat .player-copy {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
     min-width: 0;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .player-grid .player-seat .player-name,
   .player-grid .player-seat.bottom .player-name {
+    flex: 0 0 auto;
     margin: 0;
-    font-size: 12px;
-    line-height: 1.1;
+    font-size: 11px;
+    line-height: 1.15;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .player-grid .player-seat .meta-row,
-  .player-grid .player-seat .hp-row,
-  .player-grid .player-seat .card-row {
+  .player-grid .player-seat .hp-row {
     display: flex;
-    flex-wrap: wrap;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
     gap: 2px;
     margin: 1px 0 0;
+    overflow: hidden;
+  }
+
+  .player-grid .player-seat .card-row {
+    display: none;
   }
 
   .player-grid .player-seat .pill {
@@ -2866,6 +2913,9 @@ html.native-shell .hand {
   .player-grid .player-seat.bottom .skill-text,
   .player-grid .player-seat:not(.bottom) .skill-text {
     display: -webkit-box;
+    flex: 0 0 auto;
+    min-height: 1.2em;
+    max-height: 2.4em;
     margin: 1px 0 0;
     overflow: hidden;
     font-size: 10px;
@@ -2881,55 +2931,94 @@ html.native-shell .hand {
     font-size: 9px;
   }
 
+  /* Keep notices as thin strips along the top of the court so they never sit
+     on top of a seat name in the middle of the floor. */
   .tipoff-banner,
   .tipoff-banner.active {
-    max-width: min(420px, 68%);
-    padding: 6px 8px;
+    left: 8px;
+    right: 8px;
+    top: 4px;
+    bottom: auto;
+    z-index: 5;
+    width: auto;
+    max-width: none;
+    margin: 0;
+    padding: 4px 8px;
     font-size: 12px;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transform: none;
+    animation: none;
   }
 
   .target-hint,
   .target-hint.active,
   .coach-tip,
   .coach-tip.active {
-    top: 4px;
-    right: 8px;
-    bottom: auto;
     left: 8px;
+    right: 8px;
+    top: 4px;
+    bottom: auto;
     max-width: none;
     padding: 4px 8px;
     font-size: 11px;
+    line-height: 1.25;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    transform: none;
   }
 
-  .arena:has(.target-hint.active) .player-grid,
-  .arena:has(.coach-tip.active) .player-grid {
-    top: 28px;
+  /* Move only the top seats below the strip; bottom/left/right seats keep
+     their full height so names, HP and skills stay inside the court. */
+  .arena:has(.tipoff-banner.active) .player-seat.top,
+  .arena:has(.tipoff-banner.active) .player-seat.top-left,
+  .arena:has(.tipoff-banner.active) .player-seat.top-right,
+  .arena:has(.target-hint.active) .player-seat.top,
+  .arena:has(.target-hint.active) .player-seat.top-left,
+  .arena:has(.target-hint.active) .player-seat.top-right,
+  .arena:has(.coach-tip.active) .player-seat.top,
+  .arena:has(.coach-tip.active) .player-seat.top-left,
+  .arena:has(.coach-tip.active) .player-seat.top-right {
+    top: 30px;
   }
 
-  .arena:has(.target-hint.active):has(.coach-tip.active) .player-grid {
+  .arena:has(.target-hint.active):has(.coach-tip.active) .player-seat.top,
+  .arena:has(.tipoff-banner.active):has(.target-hint.active) .player-seat.top,
+  .arena:has(.tipoff-banner.active):has(.coach-tip.active) .player-seat.top,
+  .arena:has(.target-hint.active):has(.coach-tip.active) .player-seat.top-left,
+  .arena:has(.tipoff-banner.active):has(.target-hint.active) .player-seat.top-left,
+  .arena:has(.tipoff-banner.active):has(.coach-tip.active) .player-seat.top-left,
+  .arena:has(.target-hint.active):has(.coach-tip.active) .player-seat.top-right,
+  .arena:has(.tipoff-banner.active):has(.target-hint.active) .player-seat.top-right,
+  .arena:has(.tipoff-banner.active):has(.coach-tip.active) .player-seat.top-right {
     top: 50px;
   }
 
   .bench {
     grid-column: 1 / -1;
     grid-row: 3;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    align-items: center;
     gap: 4px;
     height: auto;
     min-height: 0;
-    padding: 6px;
+    padding: 4px;
     overflow: hidden;
   }
 
   .bench-top {
+    grid-column: 2;
+    grid-row: 2;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 2px;
     margin: 0;
   }
 
@@ -2946,28 +3035,61 @@ html.native-shell .hand {
   html.native-shell .modal-footer button,
   html.native-shell .response-panel button,
   html.native-shell .end-actions button {
-    min-height: 40px;
+    min-height: 44px;
     padding: 0 10px;
   }
 
   .response-panel.active,
   .discard-panel.active {
+    grid-column: 1 / -1;
+    grid-row: 1;
     flex-wrap: wrap;
     gap: 6px;
     margin: 0;
-    padding: 6px 8px;
+    padding: 4px 8px;
+  }
+
+  /* The response banner takes room from the hand, which shrinks the court
+     row. Drop the seat meta pills in that state so name, HP, and two skill
+     lines still fit inside each seat. */
+  .game-shell:has(.response-panel.active) .player-grid .player-seat .meta-row,
+  .game-shell:has(.discard-panel.active) .player-grid .player-seat .meta-row {
+    display: none;
+  }
+
+  /* The hand scrolls sideways so a full 8-card hand never gets clipped by the
+     bench. Cards keep a readable title plus at least two description lines. */
+  .game-shell:has(.response-panel.active) .hand,
+  .game-shell:has(.discard-panel.active) .hand {
+    height: 76px;
+    min-height: 76px;
+  }
+
+  .game-shell:has(.response-panel.active) .action-card,
+  .game-shell:has(.discard-panel.active) .action-card,
+  .game-shell:has(.response-panel.active) .equip-discard,
+  .game-shell:has(.discard-panel.active) .equip-discard {
+    height: 72px;
   }
 
   .hand {
-    height: 76px;
-    min-height: 76px;
+    grid-column: 1;
+    grid-row: 2;
+    height: 84px;
+    min-height: 84px;
     gap: 6px;
-    padding: 0;
+    padding: 2px 2px 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior: contain;
+    touch-action: pan-x;
   }
 
-  .action-card {
-    flex-basis: 78px;
-    height: 74px;
+  .action-card,
+  .equip-discard {
+    flex: 0 0 78px;
+    width: 78px;
+    height: 78px;
     min-height: 0;
     padding: 4px;
   }
@@ -2976,8 +3098,13 @@ html.native-shell .hand {
     transform: none;
   }
 
+  .card-type {
+    font-size: 9px;
+  }
+
   .card-title {
-    font-size: 13px;
+    margin: 2px 0;
+    font-size: 14px;
   }
 
   .card-art {
@@ -2990,8 +3117,8 @@ html.native-shell .hand {
   .card-desc {
     display: -webkit-box;
     overflow: hidden;
-    font-size: 9px;
-    line-height: 1.15;
+    font-size: 10px;
+    line-height: 1.2;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
   }
@@ -3000,8 +3127,10 @@ html.native-shell .hand {
     grid-column: 2;
     grid-row: 2;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1.2fr) minmax(48px, 0.75fr);
-    gap: 6px;
+    /* After narrowing the sidebar, spend height on a readable log (title +
+       one or two lines) plus chat input and a short message slot. */
+    grid-template-rows: minmax(48px, 1.1fr) minmax(88px, 1.5fr) minmax(22px, 0.4fr);
+    gap: 4px;
     height: 100%;
     min-height: 0;
     overflow: hidden;
@@ -3010,19 +3139,53 @@ html.native-shell .hand {
   .side-panel .panel-section,
   .side-panel .chat-section {
     display: grid;
-    padding: 6px;
+    padding: 4px;
+    gap: 3px;
+  }
+
+  .side-panel .eyebrow {
+    font-size: 10px;
+  }
+
+  .side-panel .chat-role-hint {
+    font-size: 9px;
+  }
+
+  .side-panel .chat-section {
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
   .log,
   .chat-messages,
   .discard-pile {
     min-height: 0;
-    font-size: 11px;
+    margin-top: 0;
+    font-size: 10px;
   }
 
+  .log-entry {
+    padding: 3px 5px;
+    font-size: 10px;
+    line-height: 1.3;
+  }
+
+  .chat-message {
+    padding: 3px 5px;
+  }
+
+  .chat-speaker {
+    font-size: 9px;
+  }
+
+  .chat-text {
+    font-size: 11px;
+    line-height: 1.25;
+  }
+
+  /* Quick-chat phrases are the first thing sacrificed on a short screen; the
+     chat input and the discard pile remain. */
   .quick-chat {
-    max-height: 28px;
-    overflow: auto;
+    display: none;
   }
 
   .chat-form {
@@ -3031,19 +3194,44 @@ html.native-shell .hand {
 
   .chat-form input,
   .chat-form button {
-    min-height: 32px;
+    min-height: 34px;
+    padding: 0 8px;
+    font-size: 10px;
+  }
+
+  .discard-chip {
+    padding: 3px 6px;
+    font-size: 10px;
   }
 
   .modal.active {
-    padding: 8px;
+    padding:
+      max(8px, var(--safe-top))
+      max(8px, var(--safe-right))
+      max(8px, var(--safe-bottom))
+      max(8px, var(--safe-left));
   }
 
   .modal-card {
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    max-height: 100%;
+    max-height: calc(var(--vv-height, 100dvh) - var(--safe-top) - var(--safe-bottom) - 16px);
     padding: 12px;
+  }
+
+  /* Long dialogs (settings) scroll their body while the footer stays put. */
+  .modal-card:has(.modal-body),
+  .modal-card:has(.roster) {
+    overflow: hidden;
+  }
+
+  .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
   }
 
   .modal-header h1 {
@@ -3127,11 +3315,678 @@ html.native-shell .hand {
   }
 
   .modal-footer {
+    position: sticky;
+    bottom: 0;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
     margin: 0 -12px -12px;
     padding: 8px 12px;
   }
 
   .end-actions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Portrait phones: a playable single-column layout. The scoreboard stays on
+   top, seats become a 2-column card grid, the hand scrolls sideways, and only
+   the tactical log is kept at the bottom so chat/discards never squeeze the
+   court. This block comes last so it overrides the older responsive rules. */
+
+/* Extra-short phone landscape (844x390, 740x360): drop seat meta pills so a
+   skill line stays visible, and give the log two short readable lines. */
+@media (orientation: landscape) and (max-height: 400px) {
+  .player-grid .player-seat .meta-row {
+    display: none;
+  }
+
+  /* 844x390 and 740x360: log should show a line of content, not just the
+     title; keep the chat input and a short message slot. */
+  .side-panel {
+    grid-template-rows: minmax(44px, 1fr) minmax(76px, 1.3fr) minmax(16px, 0.3fr);
+    gap: 3px;
+  }
+
+  .side-panel .panel-section,
+  .side-panel .chat-section {
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .chat-form input,
+  .chat-form button {
+    min-height: 32px;
+    font-size: 10px;
+  }
+
+  .chat-text {
+    font-size: 10px;
+    line-height: 1.25;
+  }
+
+  .log,
+  .log-entry {
+    font-size: 9.5px;
+    line-height: 1.25;
+  }
+}
+
+@media (orientation: portrait) and (max-width: 700px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    height: var(--vv-height, 100dvh);
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .game-shell,
+  html.native-shell .game-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto minmax(88px, 12vh);
+    gap: 6px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    height: var(--vv-height, 100dvh);
+    min-height: 0;
+    overflow: hidden;
+    padding:
+      max(6px, var(--safe-top))
+      max(8px, var(--safe-right))
+      max(6px, var(--safe-bottom))
+      max(8px, var(--safe-left));
+  }
+
+  .scoreboard {
+    grid-column: 1;
+    grid-row: 1;
+    grid-template-columns: minmax(64px, 1fr) auto minmax(64px, 1fr);
+    grid-template-rows: auto auto;
+    min-height: 0;
+    padding: 2px 0 4px;
+  }
+
+  .score-team {
+    min-width: 0;
+    padding: 2px 4px;
+  }
+
+  .score-team strong {
+    font-size: 30px;
+  }
+
+  .score-center {
+    gap: 7px;
+    min-width: 0;
+  }
+
+  #clockLabel {
+    min-width: 0;
+    font-size: 25px;
+  }
+
+  #phaseLabel {
+    min-width: 0;
+    font-size: 12px;
+  }
+
+  .turn-timer {
+    min-width: 0;
+    padding: 3px 7px;
+    font-size: 11px;
+  }
+
+  .score-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: center;
+    gap: 6px;
+    padding: 4px 0 0;
+  }
+
+  .icon-btn {
+    width: 44px;
+    min-height: 44px;
+  }
+
+  .arena {
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    aspect-ratio: auto;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    overflow: hidden;
+  }
+
+  .court-lines {
+    opacity: 0.32;
+  }
+
+  .player-grid,
+  .player-grid.count-4,
+  .player-grid.count-5,
+  .player-grid.count-6,
+  .player-grid.count-7,
+  .player-grid.count-8 {
+    position: relative;
+    inset: auto;
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    grid-template-areas: none;
+    grid-auto-rows: minmax(132px, auto);
+    gap: 6px;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    padding: 6px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+
+  .player-grid.count-5,
+  .player-grid.count-6 {
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: unset;
+    align-content: stretch;
+    overflow-y: hidden;
+  }
+
+  .player-grid.count-7,
+  .player-grid.count-8 {
+    grid-template-rows: none;
+    align-content: start;
+    padding-bottom: 10px;
+    scroll-padding-bottom: 12px;
+  }
+
+  .player-grid .player-seat,
+  .player-grid .player-seat.bottom,
+  .player-grid .player-seat.top,
+  .player-grid .player-seat.left,
+  .player-grid .player-seat.right,
+  .player-grid .player-seat.top-left,
+  .player-grid .player-seat.top-right,
+  .player-grid .player-seat.left-low,
+  .player-grid .player-seat.right-low,
+  .player-grid.count-7 .player-seat,
+  .player-grid.count-8 .player-seat {
+    position: relative;
+    grid-area: auto;
+    align-self: stretch;
+    justify-self: stretch;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    margin: 0;
+    padding: 5px;
+    overflow: hidden;
+    transform: none !important;
+    translate: none !important;
+  }
+
+  .player-grid .player-seat:hover,
+  .player-grid .player-seat.targetable:hover,
+  .player-grid .player-seat.top.targetable:hover,
+  .player-grid .player-seat.bottom:hover {
+    transform: none !important;
+  }
+
+  .player-grid .player-seat.center {
+    display: none;
+  }
+
+  .player-grid .player-seat .player-card,
+  .player-grid .player-seat.bottom .player-card {
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: none;
+    gap: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: 5px;
+    overflow: hidden;
+  }
+
+  .player-grid .player-seat .avatar,
+  .player-grid .player-seat.bottom .avatar {
+    flex: 0 0 auto;
+    width: 112px;
+    height: 64px;
+    margin: 0 auto -32px;
+    transform: scale(0.5);
+    transform-origin: top center;
+  }
+
+  .player-grid .player-seat .portrait-avatar,
+  .player-grid .player-seat.bottom .portrait-avatar,
+  .player-grid .player-seat .photo-avatar,
+  .player-grid .player-seat.bottom .photo-avatar,
+  .player-grid.count-7 .portrait-avatar,
+  .player-grid.count-8 .portrait-avatar,
+  .player-grid.count-7 .photo-avatar,
+  .player-grid.count-8 .photo-avatar {
+    flex: 0 0 auto;
+    width: 124px;
+    height: 68px;
+    margin: 0 auto -34px;
+    transform: scale(0.5);
+    transform-origin: top center;
+  }
+
+  .player-grid .player-seat .player-copy {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .player-grid .player-seat .player-name,
+  .player-grid .player-seat.bottom .player-name {
+    margin: 0;
+    overflow: visible;
+    font-size: 18px;
+    line-height: 1.08;
+    text-align: center;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .player-grid.count-7 .player-name,
+  .player-grid.count-8 .player-name {
+    font-size: 17px;
+  }
+
+  .player-grid .player-seat .meta-row,
+  .player-grid .player-seat .hp-row,
+  .player-grid .player-seat .card-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 3px;
+    margin: 3px 0 0;
+  }
+
+  .player-grid .player-seat .meta-row,
+  .player-grid .player-seat .card-row {
+    display: none;
+  }
+
+  .player-grid .player-seat .pill {
+    padding: 2px 5px;
+    font-size: 9px;
+  }
+
+  .player-grid .player-seat .heart {
+    width: 12px;
+    height: 12px;
+  }
+
+  .player-grid .player-seat .skill-text,
+  .player-grid .player-seat.bottom .skill-text,
+  .player-grid .player-seat:not(.bottom) .skill-text,
+  .player-grid.count-7 .skill-text,
+  .player-grid.count-8 .skill-text {
+    display: -webkit-box;
+    flex: 0 1 auto;
+    margin: 4px 0 0;
+    overflow: hidden;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 10px;
+    line-height: 1.22;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .player-grid.count-5 .skill-text,
+  .player-grid.count-6 .skill-text,
+  .player-grid.count-7 .skill-text,
+  .player-grid.count-8 .skill-text {
+    -webkit-line-clamp: 1;
+  }
+
+  .player-grid .player-seat .identity-badge {
+    top: 4px;
+    right: 4px;
+    padding: 2px 6px;
+    font-size: 10px;
+  }
+
+  .tipoff-banner,
+  .tipoff-banner.active,
+  .target-hint,
+  .target-hint.active,
+  .coach-tip,
+  .coach-tip.active {
+    position: relative;
+    left: auto;
+    right: auto;
+    top: auto;
+    bottom: auto;
+    z-index: 4;
+    flex: 0 0 auto;
+    align-self: stretch;
+    width: auto;
+    max-width: none;
+    margin: 6px 6px 0;
+    padding: 6px 10px;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.3;
+    text-align: center;
+    white-space: normal;
+    transform: none;
+    animation: none;
+  }
+
+  .bench {
+    grid-column: 1;
+    grid-row: 3;
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 5px;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    padding: 6px;
+    overflow: hidden;
+  }
+
+  .response-panel.active,
+  .discard-panel.active {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
+    padding: 6px 8px;
+  }
+
+  .response-copy strong,
+  .discard-copy strong {
+    font-size: 13px;
+  }
+
+  .response-copy span,
+  .discard-copy span {
+    font-size: 11px;
+  }
+
+  .response-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .response-actions button {
+    min-height: 44px;
+    padding: 0 10px;
+  }
+
+  .bench-top {
+    gap: 6px;
+    margin: 0;
+  }
+
+  .turn-actions {
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 5px;
+  }
+
+  .turn-actions button {
+    min-height: 44px;
+    padding: 0 9px;
+    font-size: 13px;
+  }
+
+  .hand {
+    display: flex;
+    gap: 6px;
+    height: 166px;
+    min-height: 0;
+    padding: 2px 0 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    touch-action: pan-x;
+  }
+
+  .action-card,
+  .equip-discard {
+    flex: 1 1 0;
+    min-width: 82px;
+    max-width: 112px;
+    height: 158px;
+    padding: 6px;
+  }
+
+  .action-card:hover {
+    transform: none;
+  }
+
+  .card-type {
+    font-size: 9px;
+  }
+
+  .card-title {
+    margin: 3px 0;
+    font-size: 17px;
+  }
+
+  .card-art {
+    width: 32px;
+    height: 32px;
+    margin: 4px auto;
+    font-size: 22px;
+  }
+
+  .card-desc {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 10px;
+    line-height: 1.2;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  .side-panel {
+    grid-column: 1;
+    grid-row: 4;
+    display: block;
+    height: auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .side-panel .panel-section {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100%;
+    padding: 5px 8px;
+  }
+
+  .side-panel .panel-section.chat-section,
+  .side-panel .panel-section:last-child {
+    display: none;
+  }
+
+  .log {
+    gap: 4px;
+    margin-top: 3px;
+    overflow: auto;
+  }
+
+  .log-entry {
+    padding: 4px 6px;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  .modal.active {
+    padding:
+      max(8px, var(--safe-top))
+      max(8px, var(--safe-right))
+      max(8px, var(--safe-bottom))
+      max(8px, var(--safe-left));
+  }
+
+  .modal-card {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    max-height: calc(var(--vv-height, 100dvh) - var(--safe-top) - var(--safe-bottom) - 16px);
+    padding: 12px;
+    overflow: auto;
+  }
+
+  .modal-card:has(.roster),
+  .modal-card:has(.modal-body) {
+    overflow: hidden;
+  }
+
+  .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    padding-bottom: 4px;
+  }
+
+  .modal-header h1 {
+    font-size: 32px;
+  }
+
+  .modal-header h2 {
+    font-size: 24px;
+  }
+
+  .modal-header p {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .setup-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+    padding: 8px;
+  }
+
+  .setup-options label {
+    min-width: 0;
+  }
+
+  #lanPanel,
+  .setup-options > .lan-panel {
+    grid-column: 1 / -1;
+  }
+
+  .lan-row {
+    grid-template-columns: auto minmax(70px, 1fr) auto;
+  }
+
+  .roster {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 10px 0;
+    padding: 2px 2px 6px;
+  }
+
+  .roster-card {
+    min-height: 150px;
+    padding: 6px;
+  }
+
+  .roster-card .player-card {
+    min-height: 136px;
+    padding: 6px;
+  }
+
+  .roster-card .player-name {
+    font-size: 16px;
+  }
+
+  .roster-card .skill-text {
+    font-size: 10px;
+  }
+
+  .avatar-options,
+  .sound-options,
+  .speed-options,
+  .difficulty-options,
+  .court-options,
+  .card-pack-options {
+    gap: 8px;
+    margin: 8px 0 12px;
+  }
+
+  .court-options,
+  .card-pack-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .avatar-option {
+    min-height: 64px;
+    padding: 8px 10px;
+  }
+
+  .avatar-option strong {
+    font-size: 15px;
+  }
+
+  .avatar-option span {
+    font-size: 12px;
+  }
+
+  .rules-list {
+    gap: 8px;
+    margin: 10px 0;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .modal-footer {
+    position: sticky;
+    bottom: 0;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 -12px 0;
+    padding: 10px 12px;
+  }
+
+  .modal-card:has(.roster) .modal-footer,
+  .modal-card:has(.modal-body) .modal-footer {
+    position: static;
+  }
+
+  .modal-footer button {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+
+  .end-actions {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .end-actions button {
+    min-height: 44px;
   }
 }

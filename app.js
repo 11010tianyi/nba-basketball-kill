@@ -697,6 +697,27 @@ function configureNativeShell() {
   qs("#lanPanel")?.classList.remove("active");
 }
 
+// Keep the CSS viewport in sync with the visual viewport. Mobile browsers
+// shrink visualViewport when the URL bar or keyboard appears; using this
+// height keeps the court, hand, and dialogs inside the visible area.
+function syncViewport() {
+  const root = document.documentElement;
+  const view = window.visualViewport;
+  const height = view ? view.height : window.innerHeight;
+  const width = view ? view.width : window.innerWidth;
+  const offsetTop = view ? view.offsetTop : 0;
+  root.style.setProperty("--vv-height", `${Math.round(height * 100) / 100}px`);
+  root.style.setProperty("--vv-width", `${Math.round(width * 100) / 100}px`);
+  root.style.setProperty("--vv-offset-top", `${Math.round(offsetTop * 100) / 100}px`);
+}
+syncViewport();
+window.addEventListener("resize", syncViewport);
+window.addEventListener("orientationchange", syncViewport);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", syncViewport);
+  window.visualViewport.addEventListener("scroll", syncViewport, { passive: true });
+}
+
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
   "&": "&amp;",
   "<": "&lt;",
